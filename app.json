@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "메타케어",
+    "slug": "metacare",
+    "scheme": "metacare",
+    "version": "1.0.2",
+    "orientation": "portrait",
+    "icon": "./assets/metacare-icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.metacare.demo",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "같은 Wi-Fi에 있는 체험 채팅 서버에 연결합니다.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.metacare.demo",
+      "versionCode": 3,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/metacare-adaptive.png",
+        "backgroundColor": "#3066e9"
+      },
+      "predictiveBackGestureEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/metacare-icon.png",
+      "name": "메타케어 · 건강한 일상을 함께",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "복약 기록에 남길 사진을 촬영하기 위해 카메라를 사용합니다.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "enableRemoteNotifications": false,
+          "color": "#3066e9"
+        }
+      ],
+      "expo-font",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "12d927c9-3d34-451b-b277-f08248d9b744"
+      }
+    },
+    "owner": "kwaksungjins-team"
+  }
+}

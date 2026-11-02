@@ -1,0 +1,54 @@
+{
+  "name": "metacare-mobile",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "workspaces": [
+    "caregiver"
+  ],
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~58.0.21",
+    "expo-camera": "~58.0.14",
+    "expo-constants": "~58.0.13",
+    "expo-file-system": "~58.0.12",
+    "expo-font": "~58.0.10",
+    "expo-linear-gradient": "~58.0.3",
+    "expo-linking": "~58.0.15",
+    "expo-notifications": "~58.1.7",
+    "expo-router": "~58.0.28",
+    "expo-secure-store": "~58.0.2",
+    "expo-status-bar": "~58.0.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-web": "^0.21.4",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "typescript": "~6.0.3",
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~58.0.4"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "lint": "expo lint",
+    "export:web": "expo export --platform web",
+    "chat": "node --experimental-strip-types server/chat-server.ts",
+    "care:server": "node --experimental-strip-types server/care-server.ts",
+    "caregiver": "npm run start --workspace @metacare/caregiver",
+    "caregiver:web": "npm run web --workspace @metacare/caregiver",
+    "caregiver:typecheck": "npm run typecheck --workspace @metacare/caregiver"
+  },
+  "private": true
+}

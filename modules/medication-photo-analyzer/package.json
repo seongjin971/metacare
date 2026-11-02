@@ -1,0 +1,7 @@
+{
+  "name": "medication-photo-analyzer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local photo quality measurements and on-device Korean text recognition for MetaCare",
+  "main": "index.ts"
+}

@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.medicationphotoanalyzer'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.medicationphotoanalyzer'
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // Bundle the Korean model so recognition does not need a first-run download.
+  implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
+  implementation 'androidx.exifinterface:exifinterface:1.4.2'
+}

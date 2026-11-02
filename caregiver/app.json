@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "메타케어 보호자",
+    "slug": "metacare-caregiver",
+    "scheme": "metacare-caregiver",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "../assets/metacare-icon.png",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.metacare.caregiver",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "환자 앱과 복약 기록을 연결하기 위해 개발 서버에 접속합니다.",
+        "NSAppTransportSecurity": { "NSAllowsLocalNetworking": true }
+      }
+    },
+    "android": {
+      "package": "com.metacare.caregiver",
+      "versionCode": 1,
+      "adaptiveIcon": { "foregroundImage": "../assets/metacare-adaptive.png", "backgroundColor": "#208472" },
+      "predictiveBackGestureEnabled": true
+    },
+    "web": { "name": "메타케어 보호자", "favicon": "../assets/metacare-icon.png", "bundler": "metro" },
+    "plugins": ["expo-router", "expo-font", "expo-secure-store"]
+  }
+}
