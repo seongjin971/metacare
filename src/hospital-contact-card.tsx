@@ -5,18 +5,30 @@ import { useCare } from './store';
 import { Button, C, Card, Icon, s } from './ui';
 import { MotionPressable as Pressable } from './motion';
 
-export function HospitalContactCard() {
+function displayPhone(phone: string) {
+  return phone
+    .replace(/^(02|050\d|0303|0[1-9]\d)(\d{3,4})(\d{4})$/, '$1-$2-$3')
+    .replace(/^(1\d{3})(\d{4})$/, '$1-$2');
+}
+
+export function HospitalContactCard({ editable }: { editable: boolean }) {
   const { state: { hospitalContact: contact }, commit, notify } = useCare();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(contact);
   const [busy, setBusy] = useState(false);
 
   const edit = () => { setDraft(contact); setEditing(true); };
+  const clearing = !!contact.name && !draft.name.trim() && !draft.phone.trim();
   const save = async () => {
     if (busy) return;
     setBusy(true);
     try {
-      if (await commit(current => setHospitalContact(current, draft), '병원 정보를 저장했어요.')) setEditing(false);
+      const saved = await commit(current => setHospitalContact(current, {
+        name: draft.name,
+        phone: draft.phone,
+        bookingUrl: draft.name.trim() === current.hospitalContact.name ? current.hospitalContact.bookingUrl : '',
+      }), clearing ? '병원 연락처를 지웠어요.' : '병원 연락처를 저장했어요.');
+      if (saved) setEditing(false);
     } finally { setBusy(false); }
   };
   const open = async (kind: 'phone' | 'bookingUrl') => {
@@ -27,6 +39,7 @@ export function HospitalContactCard() {
     }
   };
   if (!editing && !contact.name) {
+    if (!editable) return null;
     return <Pressable accessibilityRole="button" onPress={edit} style={styles.register}>
       <Icon name="call-outline" size={18} />
       <Text style={styles.registerText}>내 병원 연락처 등록</Text>
@@ -35,25 +48,26 @@ export function HospitalContactCard() {
   }
   return <Card>
     <View style={s.row}>
-      <Text accessibilityRole="header" style={[s.section, { flex: 1 }]}>{editing ? '내 병원 연락처' : contact.name}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel={editing ? '병원 정보 편집 닫기' : '병원 정보 수정'} disabled={busy}
+      <Text accessibilityRole="header" style={[s.section, { flex: 1 }]}>{editable ? '내 병원 연락처' : contact.name}</Text>
+      {editable && <Pressable accessibilityRole="button" accessibilityLabel={editing ? '병원 정보 편집 닫기' : '병원 정보 수정'} disabled={busy}
         onPress={editing ? () => setEditing(false) : edit} style={styles.textButton}>
         <Text style={s.muted}>{editing ? '닫기' : '수정'}</Text>
-      </Pressable>
+      </Pressable>}
     </View>
     {editing ? <>
       <View><Text style={s.label}>병원명</Text><TextInput accessibilityLabel="등록할 병원명" style={s.input} value={draft.name} maxLength={80}
         editable={!busy} onChangeText={name => setDraft(value => ({ ...value, name }))} placeholder="병원 이름" placeholderTextColor={C.muted} /></View>
-      <View><Text style={s.label}>전화번호 (선택)</Text><TextInput accessibilityLabel="병원 전화번호" style={s.input} value={draft.phone} maxLength={40}
+      <View><Text style={s.label}>전화번호</Text><TextInput accessibilityLabel="병원 전화번호" style={s.input} value={draft.phone} maxLength={40}
         editable={!busy} onChangeText={phone => setDraft(value => ({ ...value, phone }))} keyboardType="phone-pad" placeholder="대표 전화번호" placeholderTextColor={C.muted} /></View>
-      <View><Text style={s.label}>공식 예약 페이지 (선택)</Text><TextInput accessibilityLabel="병원 공식 예약 페이지 주소" style={s.input} value={draft.bookingUrl} maxLength={2048}
-        editable={!busy} onChangeText={bookingUrl => setDraft(value => ({ ...value, bookingUrl }))} keyboardType="url" autoCorrect={false} autoCapitalize="none"
-        placeholder="https://" placeholderTextColor={C.muted} /></View>
-      <Button title="병원 정보 저장" disabled={busy || (!contact.name && !draft.name.trim())} onPress={() => void save()} />
-    </> : <View style={styles.links}>
-      {!!contact.phone && <View style={styles.link}><Button title="병원에 전화" icon="call-outline" secondary small onPress={() => void open('phone')} /></View>}
-      {!!contact.bookingUrl && <View style={styles.link}><Button title="예약 페이지" icon="open-outline" secondary small onPress={() => void open('bookingUrl')} /></View>}
-    </View>}
+      <Button title={clearing ? '연락처 지우기' : '병원 정보 저장'} disabled={busy || (!clearing && (!draft.name.trim() || !draft.phone.trim()))} onPress={() => void save()} />
+    </> : <>
+      {editable && <Text style={s.body}>{contact.name}</Text>}
+      {!!contact.phone && <Text selectable style={s.body}>대표번호 {displayPhone(contact.phone)}</Text>}
+      <View style={styles.links}>
+        {!!contact.phone && <View style={styles.link}><Button title="통화" icon="call-outline" secondary small onPress={() => void open('phone')} /></View>}
+        {!editable && !!contact.bookingUrl && <View style={styles.link}><Button title="예약 페이지" icon="open-outline" secondary small onPress={() => void open('bookingUrl')} /></View>}
+      </View>
+    </>}
   </Card>;
 }
 

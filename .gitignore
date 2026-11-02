@@ -48,7 +48,7 @@ credentials.json
 /caregiver/ios/
 /caregiver/android/
 
-# Local demonstration chat history and preview artifacts
+# Local sharing server data and preview artifacts
 server/data/
 .preview/
 *.apk

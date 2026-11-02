@@ -94,7 +94,7 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
   return <View style={styles.content}>
     <VisitList title="다음 진료" visits={upcoming} onDelete={askDelete} />
     <View onLayout={scrollAnchor.onAnchorLayout} style={styles.content}>
-      <HospitalContactCard />
+      <HospitalContactCard editable={false} />
       <View pointerEvents={busy ? 'none' : 'auto'}>
         <MonthCalendar compact month={month} selectedDate={date} today={today}
           onSelectDate={setDate} onChangeMonth={changeMonth} onToday={() => { setMonth(startOfMonth(today)); setDate(today); }}

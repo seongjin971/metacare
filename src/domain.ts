@@ -20,16 +20,6 @@ export type Visit = { id: string; hospitalName: string; date: string; time: stri
 export type HospitalContact = { name: string; phone: string; bookingUrl: string };
 const EMPTY_CONTACT: HospitalContact = { name: '', phone: '', bookingUrl: '' };
 
-export type Consultation = {
-  id: string;
-  subject: string;
-  message: string;
-  createdAt: string;
-  status: 'waiting' | 'answered';
-  reply?: string;
-  repliedAt?: string;
-};
-
 export type Dose = {
   id: string;
   date: string;
@@ -49,7 +39,6 @@ export type AppState = {
   visits: Visit[];
   visitsRevision: number;
   hospitalContact: HospitalContact;
-  consultations: Consultation[];
   doses: Dose[];
   medicationSchedule: MedicationSchedule;
   sharing: { caregiver: boolean; hospital: boolean };
@@ -134,7 +123,6 @@ export function createInitialState(now = new Date()): AppState {
     visits: [],
     visitsRevision: 0,
     hospitalContact: { ...EMPTY_CONTACT },
-    consultations: [],
     doses: dosesForDate(localDateKey(now), medicationSchedule),
     medicationSchedule,
     sharing: { caregiver: false, hospital: false },
@@ -230,23 +218,6 @@ export function recordDose(state: AppState, doseId: string, taken: boolean, now 
     return pendingDose;
   });
   return withActivity({ ...state, doses }, `${formatDate(dose.date)} ${dose.time} ${dose.label}${taken ? ' 사진 인증 완료 · 사진과 함께 남긴 환자 자가 기록' : '의 복약 기록을 취소했어요'}`, now);
-}
-
-export function addConsultation(state: AppState, input: Pick<Consultation, 'subject' | 'message'>, now = new Date()): AppState {
-  validNow(now);
-  const subject = typeof input.subject === 'string' ? input.subject.trim() : '';
-  const message = typeof input.message === 'string' ? input.message.trim() : '';
-  if (!subject || subject.length > 80) throw new Error('상담 제목을 1~80자로 입력해 주세요.');
-  if (!message || message.length > 2000) throw new Error('상담 내용을 1~2,000자로 입력해 주세요.');
-  const consultation: Consultation = { id: id('consultation', now), subject, message, status: 'waiting', createdAt: now.toISOString() };
-  return withActivity({ ...state, consultations: [consultation, ...state.consultations] }, '예약 상담 요청을 남겼어요', now);
-}
-
-export function replyConsultation(state: AppState, consultationId: string, reply: string, now = new Date()): AppState {
-  validNow(now);
-  if (!state.consultations.some((item) => item.id === consultationId)) throw new Error('상담 요청을 찾을 수 없어요.');
-  if (typeof reply !== 'string' || !reply.trim() || reply.trim().length > 2000) throw new Error('답변을 1~2,000자로 입력해 주세요.');
-  return withActivity({ ...state, consultations: state.consultations.map((item) => item.id === consultationId ? { ...item, reply: reply.trim(), repliedAt: now.toISOString(), status: 'answered' } : item) }, '병원 체험 화면에서 상담에 답변했어요', now);
 }
 
 export function setSharing(state: AppState, recipient: 'caregiver' | 'hospital', enabled: boolean, now = new Date()): AppState {
@@ -352,9 +323,6 @@ export function validateLoadedState(value: unknown): AppState {
     isCareName(item.hospitalName, 80) && isDateKey(item.date) && isTime(item.time))) return invalid();
   if (value.visitsRevision !== undefined && (typeof value.visitsRevision !== 'number' ||
     !Number.isSafeInteger(value.visitsRevision) || value.visitsRevision < 0)) return invalid();
-  if (!validArray(value.consultations, (item) => hasIdAndCreatedAt(item) && isString(item.subject, 80) && !!item.subject.trim()
-    && isString(item.message, 2000) && !!item.message.trim() && (item.status === 'waiting' || item.status === 'answered')
-    && (item.status === 'waiting' ? item.reply === undefined && item.repliedAt === undefined : isString(item.reply, 2000) && !!item.reply.trim() && isTimestamp(item.repliedAt)))) return invalid();
   if (!validArray(value.doses, (item) => isDateKey(item.date) && isTime(item.time) && isString(item.label, 200) && !!item.label.trim()
     && isString(item.description, 2000) && (item.status === 'pending' || item.status === 'taken')
     && (item.status === 'taken' ? isTimestamp(item.takenAt)

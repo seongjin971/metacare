@@ -36,7 +36,7 @@ function Navigation() {
   useNotificationNavigation();
   const inset = useSafeAreaInsets();
   return <><StatusBar style="dark" /><Tabs screenOptions={{ headerShown: false, tabBarButton: props => <PlatformPressable {...props} pressColor="transparent" android_ripple={{ color: 'transparent' }} pressOpacity={1} hoverEffect={undefined} />, tabBarActiveTintColor: C.blue, tabBarInactiveTintColor: '#8b96a9', tabBarStyle: { borderTopColor: C.line, paddingTop: 10, paddingBottom: Math.max(12, inset.bottom), height: 64 + Math.max(12, inset.bottom), backgroundColor: 'white' }, tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: 4 }, sceneStyle: { backgroundColor: C.bg }, tabBarHideOnKeyboard: true }}>
-    {([['index', '복약', 'medical-outline'], ['appointments', '진료 일정', 'calendar-outline'], ['consultation', '상담', 'chatbubbles-outline'], ['settings', '내 관리', 'person-outline']] as [string, string, IconName][]).map(([name, title, icon]) => <Tabs.Screen key={name} name={name} options={{ title, tabBarIcon: ({ color, focused }) => <TabIcon name={icon} color={String(color)} focused={focused} /> }} />)}
+    {([['index', '복약', 'medical-outline'], ['appointments', '진료 일정', 'calendar-outline'], ['settings', '내 관리', 'person-outline']] as [string, string, IconName][]).map(([name, title, icon]) => <Tabs.Screen key={name} name={name} options={{ title, tabBarIcon: ({ color, focused }) => <TabIcon name={icon} color={String(color)} focused={focused} /> }} />)}
     <Tabs.Screen name="medicines" options={{ href: null }} />
   </Tabs></>;
 }

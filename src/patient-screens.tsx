@@ -20,6 +20,7 @@ import { removeDosePhoto, saveDosePhoto } from './dose-photo-storage';
 import { savePhotoRecord } from './save-photo-record';
 import { FadeIn, MotionPressable as Pressable } from './motion';
 import { CaregiverLinkCard } from './caregiver-link';
+import { HospitalContactCard } from './hospital-contact-card';
 
 function TextAction({ label, onPress, accessibilityLabel }: { label: string; onPress: () => void; accessibilityLabel?: string }) {
   return (
@@ -274,6 +275,7 @@ export function SettingsScreen() {
             <Icon name="chevron-forward" size={18} color={C.muted} />
           </Pressable>
         </Card>
+        <HospitalContactCard editable />
         <CaregiverLinkCard confirm={confirm} />
         <Card>
           <Text style={s.section}>병원 공유 설정</Text>

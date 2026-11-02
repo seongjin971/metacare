@@ -63,7 +63,7 @@ function medicationCache(data: CaregiverData): CaregiverData {
 type CareContextValue = {
   ready: boolean; mode: Mode; data: CaregiverData | null; prefs: CarePreferences; now: Date;
   fetchedAt: string | null; syncing: boolean; busy: boolean; networkError: boolean; error: string | null;
-  connect: (code: string, name: string) => Promise<boolean>;
+  connect: (code: string) => Promise<boolean>; patientName: string;
   pendingPatient: string | null;
   retryConnectionStorage: () => Promise<boolean>; cancelPendingConnection: () => Promise<boolean>;
   refresh: () => Promise<void>; disconnect: () => Promise<boolean>;
@@ -81,6 +81,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingPatient, setPendingPatient] = useState<string | null>(null);
+  const [sessionPatientName, setSessionPatientName] = useState('');
   const [networkError, setNetworkError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clock, setClock] = useState(() => new Date());
@@ -105,6 +106,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     epoch.current += 1;
     const generation = epoch.current;
     sessionRef.current = null;
+    setSessionPatientName('');
     pendingSessionRef.current = null; setPendingPatient(null);
     modeRef.current = 'disconnected';
     requestRef.current = null;
@@ -164,6 +166,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
         if (!mounted || generation !== epoch.current) return;
         if (session && typeof session.token === 'string' && session.token.length > 0 && typeof session.cacheId === 'string' && typeof session.patientName === 'string') {
           sessionRef.current = session; modeRef.current = 'connected'; setMode('connected');
+          setSessionPatientName(session.patientName);
           try { setPrefs(preferences(savedPreferences ? JSON.parse(savedPreferences) : { caregiverName: session.caregiverName })); } catch { setPrefs({ ...defaults, caregiverName: session.caregiverName || '' }); }
           try {
             const cached = savedCache ? JSON.parse(savedCache) as Cache : null;
@@ -211,6 +214,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     if (epoch.current !== generation || pendingSessionRef.current !== session) return false;
     sessionRef.current = session; pendingSessionRef.current = null; setPendingPatient(null);
     modeRef.current = 'connected'; setMode('connected');
+    setSessionPatientName(session.patientName);
     setPrefs({ ...defaults, caregiverName: session.caregiverName });
     setData(null); setFetchedAt(null); setNetworkError(false); setError(null);
     return true;
@@ -254,11 +258,11 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearPrivateState]);
 
-  const connect = useCallback(async (rawCode: string, rawName: string) => {
+  const connect = useCallback(async (rawCode: string) => {
     if (mutationRef.current || pendingSessionRef.current || modeRef.current !== 'disconnected') return false;
     const code = rawCode.replace(/\s/g, '');
-    const caregiverName = rawName.trim();
-    if (!/^\d{8}$/.test(code) || !caregiverName) { setError('8자리 연결 코드와 보호자 이름을 입력해 주세요.'); return false; }
+    const caregiverName = prefs.caregiverName.trim() || '보호자';
+    if (!/^\d{8}$/.test(code)) { setError('8자리 연결 코드를 입력해 주세요.'); return false; }
     mutationRef.current = true; setBusy(true); setError(null);
     const generation = ++epoch.current;
     try {
@@ -279,7 +283,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     } finally {
       if (epoch.current === generation) { mutationRef.current = false; setBusy(false); }
     }
-  }, [commitConnection]);
+  }, [commitConnection, prefs.caregiverName]);
 
   const disconnect = useCallback(async () => {
     if (modeRef.current === 'demo') { await clearPrivateState(); return true; }
@@ -352,7 +356,8 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   }, [clearPrivateState]);
 
   const now = mode === 'demo' ? new Date(`${demoDate}T14:20:00`) : clock;
-  return <CareContext.Provider value={{ ready, mode, data, prefs, now, fetchedAt, syncing, busy, networkError, error, connect, pendingPatient, retryConnectionStorage, cancelPendingConnection, refresh, disconnect, startDemo, exitDemo, savePreferences, loadPhoto, clearError: () => setError(null) }}>{children}</CareContext.Provider>;
+  const patientName = data?.snapshot?.patientName.trim() || sessionPatientName.trim() || '환자';
+  return <CareContext.Provider value={{ ready, mode, data, prefs, now, fetchedAt, syncing, busy, networkError, error, connect, patientName, pendingPatient, retryConnectionStorage, cancelPendingConnection, refresh, disconnect, startDemo, exitDemo, savePreferences, loadPhoto, clearError: () => setError(null) }}>{children}</CareContext.Provider>;
 }
 
 export function useCaregiver() {

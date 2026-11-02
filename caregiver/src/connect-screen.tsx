@@ -7,7 +7,6 @@ import { useCaregiver } from './store';
 export function ConnectScreen() {
   const { connect, startDemo, busy, error, clearError, pendingPatient, retryConnectionStorage, cancelPendingConnection } = useCaregiver();
   const [code, setCode] = useState('');
-  const [name, setName] = useState('');
   if (pendingPatient) return <CarePage title="메타케어 보호자">
     <Card style={{ gap: 18 }}>
       <Text accessibilityRole="header" style={s.title}>연결 정보 저장 필요</Text>
@@ -19,19 +18,21 @@ export function ConnectScreen() {
     </Card>
   </CarePage>;
   return <CarePage title="메타케어 보호자">
-    <View style={{ paddingTop: 8, gap: 10 }}>
-      <Icon name="people-outline" size={28} color={colors.teal} />
-      <Text accessibilityRole="header" style={[s.title, { fontSize: 24, lineHeight: 34 }]}>환자 연결</Text>
-      <Text style={s.body}>환자가 공유한 복약 일정과 사진 기록을 확인해요.</Text>
-    </View>
+    <Text accessibilityRole="header" style={[s.title, { fontSize: 24, lineHeight: 34 }]}>환자 연결</Text>
+    <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <Icon name="person-circle-outline" size={44} color={colors.teal} />
+      <View style={{ flex: 1, gap: 4 }}>
+        <Text style={s.section}>환자 프로필</Text>
+        <Text style={s.micro}>연결하면 여기에 표시돼요.</Text>
+      </View>
+    </Card>
     <Card style={{ gap: 18 }}>
       <View><Text style={s.label}>연결 코드</Text><TextInput accessibilityLabel="8자리 연결 코드" value={code} onChangeText={value => { setCode(value.replace(/\D/g, '').slice(0, 8)); clearError(); }} placeholder="8자리 숫자" placeholderTextColor="#8C99A4" keyboardType="number-pad" maxLength={8} autoCorrect={false} editable={!busy} style={[s.input, { letterSpacing: 3, fontSize: 22 }]} />
         <Text style={[s.micro, { marginTop: 8 }]}>환자 앱의 내 관리 → 보호자 연결에서{`\n`}만든 코드를 입력해 주세요.</Text></View>
-      <View><Text style={s.label}>보호자 이름</Text><TextInput accessibilityLabel="보호자 이름" value={name} onChangeText={value => { setName(value); clearError(); }} placeholder="환자가 알아볼 수 있는 이름" placeholderTextColor="#8C99A4" maxLength={30} autoCorrect={false} editable={!busy} style={s.input} /></View>
       {error && <Text accessibilityRole="alert" style={[s.body, { color: colors.amber }]}>{error}</Text>}
-      <CareButton title={busy ? '연결하는 중…' : '환자와 연결하기'} disabled={busy || code.length !== 8 || !name.trim()} onPress={() => void connect(code, name)} />
+      <CareButton title={busy ? '연결하는 중…' : '환자와 연결하기'} disabled={busy || code.length !== 8} onPress={() => void connect(code)} />
     </Card>
-    <View style={{ gap: 12 }}><Text style={s.micro}>연결 전에는 공유된 기록이 없어요. 환자의 동의로 연결하며, 환자 또는 보호자가 언제든 연결을 해제할 수 있어요.</Text>
+    <View style={{ gap: 12 }}><Text style={s.micro}>연결하면 환자가 공유한 복약 일정과 사진을 확인할 수 있어요. 환자 또는 보호자가 언제든 연결을 해제할 수 있어요.</Text>
       <CareButton title="예시로 살펴보기" secondary disabled={busy} onPress={startDemo} />
     </View>
   </CarePage>;

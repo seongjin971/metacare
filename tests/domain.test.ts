@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { photoFor } from './fixtures.ts';
 import {
-  addDays, addConsultation, addVisit, createInitialState, ensureDailyDoses, localDateKey,
-  recordDose, removeVisit, replyConsultation, setHospitalContact, setSharing, upcomingVisits,
+  addDays, addVisit, createInitialState, ensureDailyDoses, localDateKey,
+  recordDose, removeVisit, setHospitalContact, setSharing, upcomingVisits,
   validateLoadedState, visibleDoses,
 } from '../src/domain.ts';
 
@@ -135,21 +135,6 @@ test('each sharing consent is independent and revocation immediately hides recor
   assert.deepEqual(visibleDoses(revoked, 'caregiver'), []);
   assert.equal(visibleDoses(revoked, 'patient').length, 3);
   assert.equal(revoked.activity.length, 2);
-});
-
-test('consultation validates input and connects the reply to the same request', () => {
-  const state = createInitialState(now);
-  assert.throws(() => addConsultation(state, { subject: ' ', message: '내용' }, now));
-  const requested = addConsultation(state, { subject: ' 예약 시간 ', message: ' 오전 진료가 가능한가요? ' }, now);
-  const request = requested.consultations[0];
-  assert.equal(request.status, 'waiting');
-  assert.equal(request.subject, '예약 시간');
-  assert.throws(() => replyConsultation(requested, request.id, ' ', now));
-  const replied = replyConsultation(requested, request.id, '예약 화면에서 빈 시간을 확인해 주세요.', now);
-  assert.equal(replied.consultations[0].status, 'answered');
-  assert.equal(replied.consultations[0].repliedAt, now.toISOString());
-  assert.equal(requested.consultations[0].status, 'waiting');
-  assert.equal(validateLoadedState(replied), replied);
 });
 
 test('storage validation rejects malformed, contradictory and duplicate records', () => {

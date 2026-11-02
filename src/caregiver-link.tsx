@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AppState as NativeAppState, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { AppState as NativeAppState, StyleSheet, Switch, Text, View } from 'react-native';
 import { careRequest, CareApiError } from '../shared/care-api';
 import { clearSession, readSession, writeSession } from '../shared/care-session';
 import type { PatientConnection as Connection, PatientSnapshotUpdate } from '../shared/care-types';
@@ -7,7 +7,7 @@ import type { AppState } from './domain';
 import { makeCareSnapshot } from './caregiver-snapshot';
 import { completePatientRevocation, readPatientSharingSession, reconcileVisitConsent, requestPatientRevocation, type PatientSharingSession } from './caregiver-session';
 import { readPhotoForSharing } from './caregiver-photo-upload';
-import { Button, C, Card, s } from './ui';
+import { Button, C, Card, Icon, s } from './ui';
 
 const SESSION_KEY = 'metacare.patient-sharing.v1';
 type Invitation = { code: string; expiresAt: string };
@@ -15,7 +15,7 @@ type PatientSession = PatientSharingSession;
 type Sharing = {
   ready: boolean; busy: boolean; stopping: boolean; session: PatientSession | null; connection: Connection | null;
   error: string; photosPending: boolean; clock: number;
-  invite: (name: string) => Promise<void>; disconnect: () => Promise<void>; retry: () => Promise<void>;
+  invite: () => Promise<void>; disconnect: () => Promise<void>; retry: () => Promise<void>;
   setVisitSharing: (enabled: boolean) => Promise<void>;
 };
 const SharingContext = createContext<Sharing | null>(null);
@@ -229,10 +229,8 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
     await refresh();
   }, [connection, refresh, save, startOperation]);
 
-  const invite = useCallback(async (name: string) => {
+  const invite = useCallback(async () => {
     if (!ready || working.current || revoking.current || saved.current?.pendingRevoke) return;
-    const patientName = name.trim();
-    if (!patientName || patientName.length > 40) { setError('공유할 이름을 1~40자로 입력해 주세요.'); return; }
     if (!durable.current) { setError('복약 기록을 기기에 저장 중이에요. 잠시 뒤 다시 시도해 주세요.'); return; }
     const finish = startOperation();
     setBusy(true);
@@ -244,7 +242,7 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
         // This is the only identity creation path, reached by the explicit consent button.
         const created = await careRequest<{ token: string }>('/v1/patients', { method: 'POST', body: {} });
         if (!alive.current || generation.current !== epoch) return;
-        current = { token: created.token, patientName, consentVersion: 1, active: false };
+        current = { token: created.token, patientName: '환자', consentVersion: 1, active: false };
         await save(current, epoch);
       }
       if (!alive.current || generation.current !== epoch) return;
@@ -252,13 +250,13 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
       if (!alive.current || generation.current !== epoch) return;
       if (existing.caregiverName && existing.connectedAt) {
         setConnection(existing);
-        current = reconcileVisitConsent({ ...current, patientName, active: true, wasConnected: true }, existing.connectedAt, existing.visitConsent);
+        current = reconcileVisitConsent({ ...current, active: true, wasConnected: true }, existing.connectedAt, existing.visitConsent);
         await save(current, epoch);
         await publish(current, epoch, existing.connectedAt);
         if (generation.current === epoch) await onActiveChange(true);
         return;
       }
-      current = { token: current.token, patientName, consentVersion: 1, active: true };
+      current = { token: current.token, patientName: current.patientName, consentVersion: 1, active: true };
       await save(current, epoch);
       published.current = '';
       await publish(current, epoch, null);
@@ -312,7 +310,7 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
   const sharing = useContext(SharingContext);
   if (!sharing) throw new Error('PatientSharingProvider required');
   const { ready, busy, stopping, session, connection, error, photosPending, clock, invite, disconnect, setVisitSharing, retry } = sharing;
-  const connected = session?.active === true && !!connection?.caregiverName;
+  const connected = session?.active === true && !!connection?.caregiverName && !!connection.connectedAt;
   const waiting = session?.active === true;
   const expiresIn = session?.invite ? Math.max(0, Math.ceil((Date.parse(session.invite.expiresAt) - clock) / 1000)) : 0;
   const stop = () => confirm({
@@ -324,13 +322,24 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
   return <Card>
     <Text style={s.section}>보호자 연결</Text>
     {!ready && !error && <Text style={s.muted}>연결 정보를 확인하고 있어요.</Text>}
+    {ready && !session?.pendingRevoke && <View style={styles.profiles}>
+      <View style={styles.action}>
+        <Text style={s.micro}>내 프로필</Text>
+        <Text style={styles.profileName}>{session?.patientName ?? '환자'}</Text>
+      </View>
+      <Icon name="link-outline" size={18} color={connected ? C.green : C.muted} />
+      <View style={styles.action}>
+        <Text style={s.micro}>{connected ? '연결된 보호자' : '보호자 프로필'}</Text>
+        {connected ? <Text style={styles.profileName}>{connection.caregiverName}</Text>
+          : <Text style={s.muted}>{waiting && session.wasConnected ? '연결 확인 중' : '연결하면 표시돼요'}</Text>}
+      </View>
+    </View>}
     {session?.pendingRevoke ? <>
       <Text style={styles.warning}>이 기기 공유 중지됨 · 서버 연결 해제 대기</Text>
       <Text style={s.body}>새 기록과 사진의 전송을 중지했어요. 인터넷이 연결되면 기존 보호자의 접근 권한과 서버의 공유 기록을 삭제합니다.</Text>
       <Button title={busy || stopping ? '연결 해제 중…' : '서버 연결 해제 다시 시도'} secondary disabled={busy || stopping} onPress={() => void retry()} />
     </> : connected ? <>
-      <Text style={styles.connected}>{connection.caregiverName} 님과 연결됨</Text>
-      <Text style={s.body}>{session.patientName} 님의 복약 일정과 기록·약봉투 사진을 공유하고 있어요.</Text>
+      <Text style={s.body}>보호자와 복약 일정, 기록, 약봉투 사진을 공유하고 있어요.</Text>
       <Text style={s.muted}>마지막 기록 전송: {session.lastSync ? new Date(session.lastSync).toLocaleString('ko-KR') : '전송 대기'}</Text>
       {photosPending && <Text style={styles.warning}>일부 사진 전송 대기 · 사진은 최대 5MB까지 공유돼요.</Text>}
       <View style={styles.actions}>
@@ -338,7 +347,7 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
         <View style={styles.action}><Button title={stopping ? '해제 중…' : '연결 해제'} secondary small disabled={stopping} onPress={stop} /></View>
       </View>
     </> : waiting ? <>
-      <Text style={s.body}>{session.patientName} 님의 연결 코드</Text>
+      <Text style={s.body}>보호자 연결 코드</Text>
       {session.wasConnected ? <Text style={s.body}>보호자 연결 상태를 확인하고 있어요. 인터넷 연결 후 다시 확인해 주세요.</Text> : session.invite && expiresIn > 0 ? <>
         <Text selectable accessibilityLabel={`연결 코드 ${session.invite.code.split('').join(' ')}`} style={styles.code}>{session.invite.code.slice(0, 4)} {session.invite.code.slice(4)}</Text>
         <Text style={s.muted}>{Math.floor(expiresIn / 60)}분 {expiresIn % 60}초 남음 · 한 번만 사용할 수 있어요.</Text>
@@ -346,7 +355,7 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
       </> : <Text style={s.body}>{session.invite ? '연결 코드가 만료됐어요. 새 코드를 만들어 주세요.' : '아직 연결 코드가 없어요. 다시 시도해 주세요.'}</Text>}
       <Text style={s.muted}>보호자가 연결하기 전에는 기록을 계속 전송하지 않아요. 약봉투 사진은 연결 후 전송돼요.</Text>
       <View style={styles.actions}>
-        <View style={styles.action}><Button title={busy ? '확인 중…' : '코드 다시 만들기'} secondary small disabled={busy} onPress={() => void invite(session.patientName)} /></View>
+        <View style={styles.action}><Button title={busy ? '확인 중…' : '코드 다시 만들기'} secondary small disabled={busy} onPress={() => void invite()} /></View>
         <View style={styles.action}><Button title={stopping ? '취소 중…' : '초대 취소'} secondary small disabled={stopping} onPress={stop} /></View>
       </View>
       <Button title="연결 상태 확인" secondary small disabled={busy} onPress={() => void retry()} />
@@ -367,24 +376,23 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
   </Card>;
 }
 
-function SharingConsentForm({ ready, busy, invite }: { ready: boolean; busy: boolean; invite: (name: string) => Promise<void> }) {
+function SharingConsentForm({ ready, busy, invite }: { ready: boolean; busy: boolean; invite: () => Promise<void> }) {
   // This form remounts after disconnect or rejected credentials, so consent is never preselected.
-  const [name, setName] = useState('');
   const [consented, setConsented] = useState(false);
   return <>
     <Text style={s.body}>보호자 앱과 연결하면 내 복약 상황을 함께 확인할 수 있어요.</Text>
-    <TextInput accessibilityLabel="보호자에게 표시할 내 이름" placeholder="보호자에게 표시할 내 이름" value={name} onChangeText={setName} maxLength={40} editable={ready && !busy} style={s.input} />
     <Text style={s.muted}>이름·복약 일정·최근 90일 복용 여부와 기록 시간·최근 약봉투 사진 최대 30장을 서버와 연결한 보호자에게 공유합니다. 연결 코드를 만들 때 기록을 먼저 전송하며, 앱을 사용하는 동안 새 기록을 동기화합니다. 언제든 연결을 해제할 수 있어요.</Text>
     <View style={styles.consent}>
       <Text style={[s.body, styles.action]}>위 정보의 공유에 동의합니다</Text>
       <Switch accessibilityLabel="보호자 정보 공유에 동의" value={consented} onValueChange={setConsented} disabled={!ready || busy} trackColor={{ false: '#dfe5ee', true: C.blue }} thumbColor="white" />
     </View>
-    <Button title={busy ? '연결 준비 중…' : '보호자 연결'} disabled={!ready || busy || !consented || !name.trim()} onPress={() => void invite(name)} />
+    <Button title={busy ? '코드 만드는 중…' : '연결 코드 만들기'} disabled={!ready || busy || !consented} onPress={() => void invite()} />
   </>;
 }
 
 const styles = StyleSheet.create({
-  connected: { color: C.green, fontSize: 16, fontWeight: '600' },
+  profiles: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 9, backgroundColor: C.bg },
+  profileName: { color: C.navy, fontSize: 15, fontWeight: '600', lineHeight: 22 },
   code: { color: C.navy, fontSize: 30, fontWeight: '700', letterSpacing: 3, textAlign: 'center', paddingVertical: 12 },
   actions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   action: { flex: 1 },

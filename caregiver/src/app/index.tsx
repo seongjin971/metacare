@@ -10,14 +10,14 @@ import { getDoseState, summarizeDoses } from '../care-status';
 import { useCaregiver } from '../store';
 
 export default function TodayScreen() {
-  const { data, prefs, now, mode, networkError } = useCaregiver();
+  const { data, prefs, now, mode, networkError, patientName } = useCaregiver();
   const [photo, setPhoto] = useState<SharedDose | null>(null);
   const [contactError, setContactError] = useState<string | null>(null);
   const today = localDateKey(now);
   const doses = (data?.snapshot?.doses ?? []).filter(dose => dose.date === today).sort((a, b) => a.time.localeCompare(b.time));
   const summary = summarizeDoses(doses, prefs.threshold, now);
   const overdue = doses.filter(dose => getDoseState(dose, prefs.threshold, now) === 'overdue');
-  const patient = prefs.patientNickname || data?.snapshot?.patientName || '환자';
+  const patient = prefs.patientNickname || patientName;
   const nextVisit = data?.snapshot?.nextVisit;
   const contact = async () => {
     setContactError(null);

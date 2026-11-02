@@ -123,10 +123,6 @@ if errorlevel 1 goto wrong_device
 if errorlevel 1 goto reverse_failed
 call :is_target_avd "%TARGET_SERIAL%"
 if errorlevel 1 goto wrong_device
-"%ADB%" -s "%TARGET_SERIAL%" reverse tcp:8787 tcp:8787
-if errorlevel 1 goto reverse_failed
-call :is_target_avd "%TARGET_SERIAL%"
-if errorlevel 1 goto wrong_device
 "%ADB%" -s "%TARGET_SERIAL%" reverse tcp:8789 tcp:8789
 if errorlevel 1 goto reverse_failed
 call :is_target_avd "%TARGET_SERIAL%"

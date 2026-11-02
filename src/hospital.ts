@@ -1,5 +1,3 @@
-export const HOSPITAL_NAME = '메타의원';
-
 /** The current clinic schedule closes on Sunday. No public-holiday calendar is assumed. */
 export function getHospitalClosure(date: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('날짜 형식을 확인해 주세요.');

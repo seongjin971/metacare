@@ -11,7 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.metacare.demo",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "같은 Wi-Fi에 있는 체험 채팅 서버에 연결합니다.",
+        "NSLocalNetworkUsageDescription": "보호자 앱과 복약 기록을 공유하기 위해 개발 서버에 연결합니다.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }

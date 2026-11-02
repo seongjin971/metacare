@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createInitialState, localDateKey, type Dose } from '../src/domain.ts';
+import { createInitialState, localDateKey, validateLoadedState, type Dose } from '../src/domain.ts';
 import { makeCareSnapshot } from '../src/caregiver-snapshot.ts';
 
 const now = new Date(2026, 10, 1, 12);
@@ -12,7 +12,10 @@ function dose(id: string, daysAgo = 0): Dose {
 }
 
 test('sharing whitelists medication fields without mutating the patient store', () => {
-  const state = createInitialState(now);
+  const state = validateLoadedState({
+    ...createInitialState(now),
+    consultations: [{ id: 'private-chat', subject: '상담 제목', message: '상담 비밀', createdAt: now.toISOString(), status: 'waiting' }],
+  });
   state.doses = [{
     ...dose('taken'), status: 'taken', takenAt: now.toISOString(),
     photo: {
@@ -20,7 +23,6 @@ test('sharing whitelists medication fields without mutating the patient store', 
       verification: { method: 'medicine-pouch-text-v1', checkedAt: now.toISOString() },
     },
   }, dose('pending')];
-  state.consultations = [{ id: 'private-chat', subject: '상담 제목', message: '상담 비밀', createdAt: now.toISOString(), status: 'waiting' }];
   state.appointments = [{ id: 'private-appointment', doctorId: 'doctor-kim', date: '2026-11-02', time: '09:00', status: 'confirmed', reason: '진료 이유', createdAt: now.toISOString() }];
   const before = JSON.stringify(state);
   const snapshot = makeCareSnapshot(state, '홍길동', now);
