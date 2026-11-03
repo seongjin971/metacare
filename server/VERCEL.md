@@ -36,4 +36,6 @@ vercel deploy --prebuilt --prod --cwd .preview/public-web/caregiver
 
 안드로이드 설치본에는 보호자 EAS 프로젝트의 FCM V1 발송 자격 증명과 `com.metacare.caregiver`에 맞는 Firebase 앱 설정이 필요합니다. EAS의 빌드 환경에서 `CAREGIVER_GOOGLE_SERVICES_FILE`을 **파일 환경 변수**로 지정하세요. FCM 서비스 계정 비공개 키는 소스나 앱 번들에 넣지 말고 EAS 자격 증명에 등록하세요. [Expo FCM 설정](https://docs.expo.dev/push-notifications/fcm-credentials/). Expo Push Security를 켠 경우에만 서버 환경에 `EXPO_ACCESS_TOKEN`도 설정합니다. iOS 설치본에는 해당 앱의 APNs 자격 증명이 필요합니다.
 
-수신 검증은 알림 권한을 허용한 설치본에서 합니다(Android Expo Go·브라우저 제외). 알림을 켠 뒤 앱을 최근 목록에서 닫고 미기록 회차와 기한 전에 기록한 회차를 각각 확인하세요. 안드로이드 시스템 설정의 ‘강제 종료’는 다시 앱을 열 때까지 푸시 수신을 막습니다.
+웹 보호자 앱은 같은 예약 큐를 사용하며, Web Push로 브라우저에 직접 전달합니다. API 프로젝트의 Production 환경에 VAPID P-256 키 쌍을 `WEB_PUSH_VAPID_PUBLIC_KEY`와 `WEB_PUSH_VAPID_PRIVATE_KEY`로 설정합니다. 브라우저는 등록에 필요한 공개키만 받습니다. 비공개 키나 구독 주소는 저장소·프런트엔드 환경·로그에 넣지 마세요. 배포마다 새 키를 만들면 기존 구독이 끊깁니다.
+
+웹에서는 알림을 허용한 후 보호자 탭을 모두 닫고, 설치 앱에서는 앱을 최근 목록에서 닫은 뒤 기한 전 기록·미기록 회차를 각각 확인하세요. Android Expo Go는 원격 푸시 검증을 지원하지 않습니다. 안드로이드 시스템 설정의 ‘강제 종료’는 다시 앱을 열 때까지 푸시 수신을 막습니다.

@@ -1,26 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import type { DevicePushToken } from 'expo-notifications';
-import { careRequest } from '../../shared/care-api';
+import { careRequest, CareApiError } from '../../shared/care-api';
+import { clearSession, readSession, writeSession } from '../../shared/care-session';
 import { getAlertToken, hasAlertPermission, supportsCareAlerts, watchAlertToken } from './alert-device';
 import { OVERDUE_THRESHOLDS, type OverdueThreshold } from './care-status';
+import { ALERT_RECEIPT_KEY, reconcileDeviceAlert, type AlertReceipt, type RemoteAlertSetting } from './device-alert-setting';
 
-type AlertSettings = { enabled: boolean; threshold: OverdueThreshold };
 const endpoint = '/v1/caregiver/alerts';
 const unavailable = '알림 설정을 확인하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.';
+const conflict = '다른 기기에서 알림 설정이 바뀌었어요. 설정을 다시 확인해 주세요.';
+type Confirmed = RemoteAlertSetting & { owns: boolean };
 
-function settings(value: AlertSettings): AlertSettings {
-  if (typeof value?.enabled !== 'boolean' || !OVERDUE_THRESHOLDS.includes(value.threshold)) throw new Error(unavailable);
+function settings(value: RemoteAlertSetting): RemoteAlertSetting {
+  if (typeof value?.enabled !== 'boolean' || !OVERDUE_THRESHOLDS.includes(value.threshold)
+      || (value.enabled && (typeof value.registrationId !== 'string' || !value.registrationId))) throw new Error(unavailable);
   return value;
 }
 
-export function useOverdueAlerts(token?: string) {
-  const [confirmed, setConfirmed] = useState<AlertSettings | null>(null);
+export function useOverdueAlerts(token?: string, cacheId?: string) {
+  const [confirmed, setConfirmed] = useState<Confirmed | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [blocked, setBlocked] = useState(false);
   const [owner, setOwner] = useState(token);
   if (owner !== token) {
-    setOwner(token); setBusy(false); setConfirmed(null); setError('');
+    setOwner(token); setBusy(false); setConfirmed(null); setError(''); setBlocked(false);
   }
   const latest = useRef(token);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
@@ -31,39 +36,44 @@ export function useOverdueAlerts(token?: string) {
     return next;
   }, []);
 
-  const put = useCallback(async (enabled: boolean, threshold: OverdueThreshold, expoPushToken?: string) => {
-    if (!token || latest.current !== token) throw new Error('환자 연결을 확인해 주세요.');
-    const body = {
-      enabled, threshold,
-      ...(expoPushToken && { expoPushToken, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
-    };
-    const response = await careRequest<AlertSettings>(endpoint, { method: 'PUT', token, body });
-    return settings(response);
-  }, [token]);
+  const put = useCallback(async (threshold: OverdueThreshold, target: string | null, expectedRegistrationId: string | null) => {
+    if (!token || !cacheId || latest.current !== token) throw new Error('환자 연결을 확인해 주세요.');
+    const destination = target?.startsWith('webpush:')
+      ? { webPushSubscription: target.slice('webpush:'.length) } : { expoPushToken: target };
+    const body = { enabled: !!target, threshold, expectedRegistrationId,
+      ...(target && { ...destination, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) };
+    const remote = settings(await careRequest<RemoteAlertSetting>(endpoint, { method: 'PUT', token, body }));
+    if (latest.current !== token) throw new Error('환자 연결이 바뀌었어요.');
+    if (remote.registrationId && remote.enabled) {
+      await writeSession(ALERT_RECEIPT_KEY, { cacheId, registrationId: remote.registrationId } satisfies AlertReceipt);
+    } else await clearSession(ALERT_RECEIPT_KEY);
+    return remote;
+  }, [token, cacheId]);
 
   const refresh = useCallback((rotated?: DevicePushToken) => serialize(async () => {
-    if (!token || latest.current !== token || !supportsCareAlerts) return;
+    if (!token || !cacheId || latest.current !== token || !supportsCareAlerts) return;
     try {
-      let remote = settings(await careRequest<AlertSettings>(endpoint, { token }));
+      const [value, receipt] = await Promise.all([
+        careRequest<RemoteAlertSetting>(endpoint, { token }), readSession<AlertReceipt>(ALERT_RECEIPT_KEY),
+      ]);
       if (latest.current !== token) return;
-      if (remote.enabled) {
-        if (!await hasAlertPermission(false)) {
-          remote = await put(false, remote.threshold);
-          registered.current = null;
-        } else if (!registered.current || rotated) {
-          const currentToken = await getAlertToken(rotated);
-          if (currentToken !== registered.current) remote = await put(true, remote.threshold, currentToken);
-          if (latest.current !== token) return;
-          registered.current = currentToken;
-        }
-      } else {
-        registered.current = null;
+      const remote = settings(value);
+      const previousTarget = registered.current;
+      const result = await reconcileDeviceAlert(remote, cacheId, receipt, () => hasAlertPermission(false), previousTarget,
+        () => rotated || !previousTarget || Platform.OS === 'web' ? getAlertToken(rotated) : Promise.resolve(previousTarget),
+        (target, expected) => put(remote.threshold, target, expected));
+      if (latest.current === token) {
+        registered.current = result.target;
+        setConfirmed({ ...result.remote, owns: result.owns });
+        if (result.blocked || result.owns) setBlocked(result.blocked);
+        setError('');
       }
-      if (latest.current === token) { setConfirmed(remote); setError(''); }
-    } catch {
-      if (latest.current === token) { setConfirmed(null); setError(unavailable); }
+    } catch (cause) {
+      if (latest.current === token) {
+        setConfirmed(null); setError(cause instanceof CareApiError && cause.status === 409 ? conflict : unavailable);
+      }
     }
-  }), [put, serialize, token]);
+  }), [put, serialize, token, cacheId]);
 
   useEffect(() => {
     latest.current = token;
@@ -75,32 +85,40 @@ export function useOverdueAlerts(token?: string) {
     return () => { latest.current = undefined; activity.remove(); rotation.remove(); };
   }, [token, refresh]);
 
-  const update = useCallback((enabled: boolean, threshold: OverdueThreshold) => serialize(async () => {
-    if (!token || latest.current !== token || !supportsCareAlerts) return false;
+  const update = useCallback(async (enabled: boolean, threshold: OverdueThreshold) => {
+    if (!token || latest.current !== token || !supportsCareAlerts || !confirmed || (!enabled && !confirmed.owns)) return false;
     setBusy(true); setError('');
     let mayHaveSaved = false;
     try {
-      let expoPushToken: string | undefined;
-      if (enabled) {
-        if (!await hasAlertPermission(true)) throw new Error('휴대폰 설정에서 보호자 앱의 복약 미기록 알림을 허용해 주세요.');
-        expoPushToken = registered.current ?? await getAlertToken();
+      // Browsers require the permission prompt to start inside the switch's user gesture.
+      if (enabled && !await hasAlertPermission(true)) {
+        if (latest.current === token) setBlocked(true);
+        return false;
       }
-      mayHaveSaved = true;
-      const remote = await put(enabled, threshold, expoPushToken);
       if (latest.current !== token) return false;
-      registered.current = expoPushToken ?? null;
-      setConfirmed(remote); return true;
+      setBlocked(false);
+      const target = enabled ? (confirmed.owns ? registered.current : null) ?? await getAlertToken() : null;
+      return await serialize(async () => {
+        mayHaveSaved = true;
+        const remote = await put(threshold, target, confirmed.registrationId ?? null);
+        if (latest.current !== token) return false;
+        registered.current = target;
+        setConfirmed({ ...remote, owns: remote.enabled });
+        return true;
+      });
     } catch (cause) {
       if (latest.current === token) {
         if (mayHaveSaved) setConfirmed(null);
-        setError(mayHaveSaved ? '알림 설정을 저장했는지 확인하지 못했어요. 다시 확인해 주세요.'
-          : cause instanceof Error ? cause.message : unavailable);
+        if (cause instanceof CareApiError && cause.status === 409) setError(conflict);
+        else if (mayHaveSaved) setError('알림 설정을 저장했는지 확인하지 못했어요. 다시 확인해 주세요.');
+        else setError(cause instanceof Error ? cause.message : unavailable);
       }
       return false;
     } finally {
       if (latest.current === token) setBusy(false);
     }
-  }), [token, put, serialize]);
+  }, [token, confirmed, put, serialize]);
 
-  return { confirmed, busy, error, refresh, update };
+  return { confirmed: confirmed && { enabled: confirmed.owns, threshold: confirmed.threshold },
+    otherDevice: confirmed?.enabled && !confirmed.owns, blocked, busy, error, refresh, update };
 }

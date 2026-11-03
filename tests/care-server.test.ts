@@ -79,7 +79,10 @@ test('closed apps receive one overdue push per slot, including after server rest
   await f.api('/v1/patient/snapshot', 'PUT', p, { ...shared, doses: [] });
   assert.equal((await f.api(alertsPath, 'PUT', p, enableAlerts)).response.status, 401);
   assert.deepEqual((await f.api(alertsPath, 'GET', g)).body, { enabled: false, threshold: 30 });
-  assert.deepEqual((await f.api(alertsPath, 'PUT', g, enableAlerts)).body, { enabled: true, threshold: 30 });
+  const initial = (await f.api(alertsPath, 'PUT', g, { ...enableAlerts, expectedRegistrationId: null })).body;
+  assert.deepEqual(initial, { enabled: true, threshold: 30, registrationId: initial.registrationId });
+  assert.ok(typeof initial.registrationId === 'string' && /^[a-f0-9-]{36}$/.test(initial.registrationId));
+  assert.equal((await f.api(alertsPath, 'PUT', g, { enabled: false, threshold: 30, expectedRegistrationId: null })).response.status, 409);
   clock = Date.parse('2026-11-01T08:29:59+09:00');
   await f.processAlerts();
   assert.deepEqual(pushes, []);

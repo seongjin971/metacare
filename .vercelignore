@@ -20,6 +20,7 @@
 !server/care-core.ts
 !server/queue-runtime.mjs
 !server/overdue.ts
+!server/web-push.ts
 !server/vercel-overdue.ts
 !server/vercel-overdue.sql
 !server/care-errors.ts

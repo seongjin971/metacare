@@ -1,10 +1,12 @@
 import { keys, record, type Patient } from './care-core.ts';
-import { eligibleOverdueSlot, nextOverdueSlot, parseOverdueSettings, type OverdueSettings, type OverdueSlot } from './overdue.ts';
+import { checkRegistration, eligibleOverdueSlot, nextOverdueSlot, parseOverdueSettings, type OverdueSettings, type OverdueSlot } from './overdue.ts';
+import { randomUUID } from 'node:crypto';
 import { isCareDate, isCareTime } from '../shared/care-visit.ts';
 
 export type LocalAlert = {
   patientId: string;
   connectedAt: string;
+  registrationId?: string;
   settings: OverdueSettings;
   next: OverdueSlot | null;
   retryAt?: number;
@@ -16,7 +18,8 @@ export function validLocalAlerts(items: unknown, patients: Patient[]): items is 
   const family = new Set<string>();
   const tokens = new Set<string>();
   return items.every(item => {
-    if (!record(item) || !keys(item, ['patientId', 'connectedAt', 'settings', 'next', 'sent'], ['retryAt'])
+    if (!record(item) || !keys(item, ['patientId', 'connectedAt', 'settings', 'next', 'sent'], ['retryAt', 'registrationId'])
+      || (item.registrationId !== undefined && (typeof item.registrationId !== 'string' || !/^[a-f0-9-]{36}$/.test(item.registrationId)))
       || (item.retryAt !== undefined && (!Number.isSafeInteger(item.retryAt) || item.next === null))
       || typeof item.patientId !== 'string' || typeof item.connectedAt !== 'string'
       || !patients.some(p => p.id === item.patientId && p.caregiver?.connectedAt === item.connectedAt)
@@ -24,7 +27,9 @@ export function validLocalAlerts(items: unknown, patients: Patient[]): items is 
         typeof key === 'string' && /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(key))) return false;
     family.add(item.patientId);
     try {
-      const settings = parseOverdueSettings(item.settings);
+      const raw = item.settings;
+      const settings = parseOverdueSettings(record(raw) && typeof raw.expoPushToken === 'string' && raw.expoPushToken.startsWith('webpush:')
+        ? { enabled: raw.enabled, threshold: raw.threshold, timeZone: raw.timeZone, webPushSubscription: raw.expoPushToken.slice(8) } : raw);
       if (settings.enabled) {
         if (tokens.has(settings.expoPushToken)) return false;
         tokens.add(settings.expoPushToken);
@@ -48,12 +53,15 @@ export function disableLocalAlert(alert: LocalAlert): LocalAlert {
 }
 
 export function updateLocalAlerts(alerts: LocalAlert[], patient: Patient, body: unknown, now: number): LocalAlert[] {
-  const settings = parseOverdueSettings(body);
+  const { expectedRegistrationId, ...settings } = parseOverdueSettings(body);
   const old = alerts.find(alert => alert.patientId === patient.id);
+  const oldToken = old?.settings.enabled ? old.settings.expoPushToken : null;
+  checkRegistration(expectedRegistrationId, oldToken ? old?.registrationId ?? null : null, oldToken);
   const samePlan = old?.settings.enabled && settings.enabled && settings.threshold === old.settings.threshold
     && settings.timeZone === old.settings.timeZone;
   const next = planLocalAlert({
     patientId: patient.id, connectedAt: patient.caregiver!.connectedAt, settings,
+    ...(settings.enabled && { registrationId: oldToken === settings.expoPushToken && old?.registrationId || randomUUID() }),
     next: samePlan ? old.next : null, retryAt: samePlan ? old.retryAt : undefined, sent: old?.sent ?? [],
   }, patient, now);
   // A device token belongs to only one active recipient, even after reinstalling and pairing again.
@@ -72,7 +80,7 @@ export function claimLocalAlert(alert: LocalAlert, patient: Patient, now: number
   const sent = alert.sent.filter(value => value >= keepSince);
   if (send) sent.push(key);
   return {
-    alert: planLocalAlert({ ...alert, next: null, retryAt: undefined, sent }, patient, now),
+    alert: { ...alert, next: nextOverdueSlot(patient.snapshot, settings.threshold, now, settings.timeZone, next), retryAt: undefined, sent },
     notification: send ? { token: settings.expoPushToken, slot: next } : undefined,
   };
 }

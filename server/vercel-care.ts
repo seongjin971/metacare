@@ -4,7 +4,7 @@ import type { SharedVisit } from '../shared/care-types.ts';
 import { hash, photoIds, routeCare, tokenDigest, type CareStore, type Patient, type Role } from './care-core.ts';
 import { HttpError } from './care-errors.ts';
 import { pruneVercelPhotos, routeVercelPhoto } from './vercel-photos.ts';
-import { parseOverdueSettings, type EnqueueOverdue } from './overdue.ts';
+import { parseOverdueSettings, webPushPublicConfig, type EnqueueOverdue } from './overdue.ts';
 import { getOverdueSettings, reconcileOverdue, setOverdueSettings } from './vercel-overdue.ts';
 
 const snapshotLimit = 256 * 1024;
@@ -154,6 +154,7 @@ export function createVercelCareHandler(pool: Pool, options: Options = {}) {
       const path = endpoint(request);
       if (request.method !== 'PUT' && request.method !== 'POST') await requireEmptyBody(request);
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+      if (path === '/v1/web-push/key' && request.method === 'GET') return Response.json(webPushPublicConfig(), { headers });
       if (path === '/v1/health' && request.method === 'GET') {
         await pool.query('SELECT 1 FROM metacare_patients, metacare_rate_limits, metacare_photos, metacare_photo_uploads, metacare_overdue_settings, metacare_overdue_deliveries LIMIT 0');
         return Response.json({ status: 'ok' }, { headers });

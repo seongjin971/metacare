@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import type { Patient } from './care-core.ts';
 import { HttpError } from './care-errors.ts';
 import {
-  eligibleOverdueSlot, isOverdueJob, nextOverdueSlot, RetryablePushError, sendOverduePush,
+  checkRegistration, eligibleOverdueSlot, isOverdueJob, nextOverdueSlot, RetryablePushError, sendOverduePush,
   type EnqueueOverdue, type OverdueJob, type OverdueSettings,
 } from './overdue.ts';
 
@@ -23,7 +23,7 @@ async function registration(client: PoolClient, patient: Family) {
 
 export async function getOverdueSettings(client: PoolClient, patient: Family) {
   const row = await registration(client, patient);
-  return { enabled: !!row?.push_token, threshold: row?.threshold ?? 30 };
+  return { enabled: !!row?.push_token, threshold: row?.threshold ?? 30, ...(row?.push_token && { registrationId: row.subscription_key }) };
 }
 
 // The caller holds the family lock and transaction. A successful publish followed by a
@@ -32,9 +32,9 @@ export async function getOverdueSettings(client: PoolClient, patient: Family) {
 async function schedule(client: PoolClient, patient: Family, row: Registration, now: number, enqueue: EnqueueOverdue, completed = false) {
   const previous = row.next_job;
   const after = completed || !previous ? now : Math.min(now, previous.dueAt - 1);
-  const next = nextOverdueSlot(patient.snapshot, row.threshold, after, row.time_zone ?? undefined);
+  const next = nextOverdueSlot(patient.snapshot, row.threshold, after, row.time_zone ?? undefined, completed ? previous ?? undefined : undefined);
   if (previous && next && previous.dueAt === next.dueAt && previous.date === next.date && previous.time === next.time) return;
-  const future = next && next.dueAt <= now
+  const future = !completed && next && next.dueAt <= now
     ? nextOverdueSlot(patient.snapshot, row.threshold, now, row.time_zone ?? undefined) : next;
   if (!previous && !future) return;
   const job = future && { ...future, patientId: patient.id, generation: randomUUID() };
@@ -53,6 +53,8 @@ export async function reconcileOverdue(client: PoolClient, patient: Family, now:
 
 export async function setOverdueSettings(client: PoolClient, patient: Family, prefs: OverdueSettings, now: number, enqueue: EnqueueOverdue) {
   if (!patient.caregiver) throw new HttpError(401, '보호자 연결을 확인해 주세요.');
+  const current = await registration(client, patient);
+  checkRegistration(prefs.expectedRegistrationId, current?.push_token ? current.subscription_key : null, current?.push_token);
   const token = prefs.enabled ? prefs.expoPushToken : null;
   if (token) {
     // The same installation can be re-paired or restored; send only for its current family.
@@ -65,14 +67,14 @@ export async function setOverdueSettings(client: PoolClient, patient: Family, pr
     `INSERT INTO metacare_overdue_settings(patient_id,pair_hash,threshold,push_token,time_zone,subscription_key) VALUES($1,$2,$3,$4,$5,$6)
      ON CONFLICT(patient_id) DO UPDATE SET threshold=EXCLUDED.threshold, push_token=EXCLUDED.push_token,
        time_zone=COALESCE(EXCLUDED.time_zone,metacare_overdue_settings.time_zone),
-       subscription_key=CASE WHEN metacare_overdue_settings.push_token IS NULL THEN EXCLUDED.subscription_key
+       subscription_key=CASE WHEN metacare_overdue_settings.push_token IS DISTINCT FROM EXCLUDED.push_token THEN EXCLUDED.subscription_key
                              ELSE metacare_overdue_settings.subscription_key END,
        next_job=CASE WHEN EXCLUDED.push_token IS NULL THEN NULL ELSE metacare_overdue_settings.next_job END
      RETURNING ` + columns, [patient.id, patient.caregiver.tokenHash, prefs.threshold, token, prefs.timeZone ?? null, randomUUID()],
   );
   if (!token) await client.query('DELETE FROM metacare_overdue_deliveries WHERE patient_id=$1 AND claimed=false', [patient.id]);
   if (token) await schedule(client, patient, result.rows[0], now, enqueue);
-  return { enabled: prefs.enabled, threshold: prefs.threshold };
+  return { enabled: prefs.enabled, threshold: prefs.threshold, ...(token && { registrationId: result.rows[0].subscription_key }) };
 }
 
 async function inTransaction<T>(pool: Pool, run: (client: PoolClient) => Promise<T>): Promise<T> {

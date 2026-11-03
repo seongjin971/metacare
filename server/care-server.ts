@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { keys, record, routeCare, tokenDigest, validPatient, type CareStore, type Patient } from './care-core.ts';
 import { HttpError } from './care-errors.ts';
 import { claimLocalAlert, disableLocalAlert, planLocalAlert, updateLocalAlerts, validLocalAlerts, type LocalAlert } from './local-overdue.ts';
-import { RetryablePushError, sendOverduePush } from './overdue.ts';
+import { RetryablePushError, sendOverduePush, webPushPublicConfig } from './overdue.ts';
 
 type State = { version: 1; patients: Patient[]; alerts: LocalAlert[] };
 type Options = {
@@ -48,6 +48,7 @@ async function loadState(dataPath: string): Promise<State> {
     || new Set(invites).size !== invites.length) throw new Error('Care data has duplicate identities. Preserve and repair the file before starting.');
   const alerts = Object.hasOwn(value, 'alerts') ? value.alerts : [];
   if (!validLocalAlerts(alerts, patients)) throw new Error('Care notification data is invalid. Preserve and repair the file before starting.');
+  for (const alert of alerts) if (alert.settings.enabled && !alert.registrationId) alert.registrationId = randomUUID();
   return { version: 1, patients, alerts };
 }
 
@@ -176,8 +177,9 @@ export async function startCareServer(options: Options = {}) {
     },
     alerts: async (patient, method, body, nowMs) => {
       if (method === 'PUT') await save(state.patients, updateLocalAlerts(state.alerts, patient, body, nowMs));
-      const settings = state.alerts.find(item => item.patientId === patient.id)?.settings;
-      return { status: 200, body: { enabled: settings?.enabled ?? false, threshold: settings?.threshold ?? 30 } };
+      const alert = state.alerts.find(item => item.patientId === patient.id);
+      return { status: 200, body: { enabled: alert?.settings.enabled ?? false, threshold: alert?.settings.threshold ?? 30,
+        ...(alert?.settings.enabled && { registrationId: alert.registrationId }) } };
     },
   };
   const limited = (request: IncomingMessage) => {
@@ -234,6 +236,9 @@ export async function startCareServer(options: Options = {}) {
         else if (request.headers['transfer-encoding'] || Number(request.headers['content-length'] ?? 0) > 0) throw new HttpError(400, 'This request does not accept a body.');
         if (url.pathname === '/v1/health' && request.method === 'GET') {
           respond(response, 200, { status: 'ok' }); return;
+        }
+        if (url.pathname === '/v1/web-push/key' && request.method === 'GET') {
+          respond(response, 200, webPushPublicConfig()); return;
         }
         const result = await serialize(() => routeCare(store, request.method ?? '', url.pathname, request.headers.authorization, body, now, ttl));
         respond(response, result.status, result.body);

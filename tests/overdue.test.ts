@@ -39,6 +39,11 @@ test('on a clock change the slot fires once using the first repeated wall time o
   assert.equal(nextOverdueSlot(ny, 30, fallBack.dueAt)?.date, '2026-11-02');
   const spring = { ...ny, schedule: { ...ny.schedule, times: ['02:30'] } };
   assert.equal(nextOverdueSlot(spring, 30, Date.parse('2026-03-08T06:00Z'))?.dueAt, Date.parse('2026-03-08T08:00Z'));
+  const adjacent = { ...ny, schedule: { frequency: 'twice' as const, times: ['02:30', '03:30'] } };
+  const first = nextOverdueSlot(adjacent, 30, Date.parse('2026-03-08T06:00Z'))!;
+  assert.equal(first.time, '02:30');
+  assert.equal(nextOverdueSlot(adjacent, 30, first.dueAt + 60_000, undefined, first)?.time, '03:30');
+  assert.equal(nextOverdueSlot(adjacent, 30, first.dueAt + 61 * 60_000, undefined, first)?.date, '2026-03-09');
 });
 
 test('Expo payload points to a dose in the correct pairing and explicit recipient/rate errors are classified', async t => {

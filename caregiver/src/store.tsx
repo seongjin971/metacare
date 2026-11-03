@@ -11,6 +11,7 @@ import { localDateKey } from '../../src/domain';
 import { makeDemoData } from './demo';
 import { OVERDUE_THRESHOLDS, type OverdueThreshold } from './care-status';
 import { useOverdueAlerts } from './use-overdue-alerts';
+import { ALERT_RECEIPT_KEY } from './device-alert-setting';
 import { clearDeliveredAlerts } from './alert-device';
 
 const SESSION_KEY = 'metacare.caregiver.session.v1';
@@ -100,7 +101,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const requestRef = useRef<object | null>(null);
   const mutationRef = useRef(false);
   const storageQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const alerts = useOverdueAlerts(activeSession?.token);
+  const alerts = useOverdueAlerts(activeSession?.token, activeSession?.cacheId);
 
   // Serialize disk changes as well as guarding network responses. An old write can
   // never restore a token or snapshot after disconnect/revocation.
@@ -124,7 +125,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     setSyncing(false); setBusy(false); setNetworkError(false); setError(notice);
     await persist(async () => {
       // Always remove the old cache before a later session write in this queue.
-      await Promise.all([clearSession(SESSION_KEY), AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY])]);
+      await Promise.all([clearSession(SESSION_KEY), clearSession(ALERT_RECEIPT_KEY), AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY])]);
     }).catch(() => {
       if (epoch.current === generation) setError('기기에 저장된 연결 정보 삭제를 완료하지 못했어요. 앱을 다시 열어 확인해 주세요.');
     });
@@ -184,7 +185,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
             }
           } catch { /* A corrupt cache must not prevent reconnecting. */ }
         } else {
-          await persist(() => Promise.all([clearSession(SESSION_KEY), AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY])]));
+          await persist(() => Promise.all([clearSession(SESSION_KEY), clearSession(ALERT_RECEIPT_KEY), AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY])]));
         }
       } catch {
         if (mounted) setError('저장된 연결을 불러오지 못했어요. 연결 정보를 다시 입력해 주세요.');
@@ -218,6 +219,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
       // A new family's session cannot be saved while an old private cache or
       // contact remains. Retrying uses this exact issued session, never the code.
       await AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY]);
+      await clearSession(ALERT_RECEIPT_KEY);
       await writeSession(SESSION_KEY, session);
     });
     if (epoch.current !== generation || pendingSessionRef.current !== session) return false;

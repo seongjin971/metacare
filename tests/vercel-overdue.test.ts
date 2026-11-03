@@ -18,7 +18,7 @@ test('durable deadlines survive closed apps and repeated queue delivery, but sto
   let now = Date.parse('2026-11-03T09:50:00+09:00');
   const family: Pick<Patient, 'id' | 'caregiver' | 'snapshot'> = {
     id: 'testing', caregiver: { tokenHash: 'caregiver-test-key', connectedAt: new Date(now).toISOString(), name: '보호자' },
-    snapshot: { patientName: '환자', schedule: { frequency: 'twice', times: ['10:00', '19:00'] }, doses: [], updatedAt: new Date(now).toISOString() },
+    snapshot: { patientName: '환자', schedule: { frequency: 'three', times: ['10:00', '10:05', '19:00'] }, doses: [], updatedAt: new Date(now).toISOString() },
   };
   await pool.query('INSERT INTO metacare_patients(id, token_hash, snapshot, caregiver) VALUES($1,$2,$3,$4)',
     [family.id, 'patient-test-key', family.snapshot, family.caregiver]);
@@ -43,8 +43,17 @@ test('durable deadlines survive closed apps and repeated queue delivery, but sto
   } finally { instance.release(); }
   await change(enabled);
   const first = queue[0];
+  async function activeId() {
+    const client = await pool.connect();
+    try { return (await getOverdueSettings(client, family)).registrationId; } finally { client.release(); }
+  }
+  const originalRegistration = await activeId();
+  assert.ok(originalRegistration);
+  await assert.rejects(change({ ...enabled, expectedRegistrationId: null }), error => (error as { status?: number }).status === 409);
   await change(enabled);
-  await change({ ...enabled, expoPushToken: 'ExpoPushToken[rotated12345]' });
+  await change({ ...enabled, expoPushToken: 'ExpoPushToken[rotated12345]', expectedRegistrationId: originalRegistration });
+  assert.notEqual(await activeId(), originalRegistration);
+  await assert.rejects(change({ enabled: false, threshold: 15, expectedRegistrationId: originalRegistration }), error => (error as { status?: number }).status === 409);
   assert.equal(queue.length, 1, 'token rotations and repeated submissions keep the same timer');
   let sent = 0;
   const send = async (token: string) => {
@@ -53,23 +62,27 @@ test('durable deadlines survive closed apps and repeated queue delivery, but sto
     return 'accepted' as const;
   };
   const run = (job: OverdueJob) => processOverdueJob(pool, job, enqueue, send, () => now);
-  now = first.dueAt;
+  now = first.dueAt + 6 * 60_000;
   await Promise.all([run(first), run(first)]);
   assert.equal(sent, 1);
   assert.equal(queue.length, 2, 'callback schedules the next check without another app request');
-  const evening = queue[1];
+  const adjacent = queue[1];
+  assert.equal(adjacent.time, '10:05', 'a delayed callback still enqueues the next recently elapsed deadline');
+  await Promise.all([run(adjacent), run(adjacent)]);
+  assert.equal(sent, 2);
+  const evening = queue[2];
   family.snapshot!.doses = [
     { id: 'evening', date: evening.date, time: evening.time, label: '저녁', status: 'taken', takenAt: new Date(evening.dueAt - 1000).toISOString() },
   ];
   await change();
   now = evening.dueAt;
   await run(evening);
-  assert.equal(sent, 1, 'upload between enqueue and delivery suppresses notification');
+  assert.equal(sent, 2, 'upload between enqueue and delivery suppresses notification');
 
   const tomorrow = queue.at(-1)!;
   await change({ ...enabled, threshold: 15 });
   await run(tomorrow);
-  assert.equal(sent, 1, 'stale timed task after threshold change is ignored');
+  assert.equal(sent, 2, 'stale timed task after threshold change is ignored');
   const adjusted = queue.at(-1)!;
   now = adjusted.dueAt;
   let attempts = 0;
@@ -89,13 +102,13 @@ test('durable deadlines survive closed apps and repeated queue delivery, but sto
   await change({ enabled: false, threshold: 60 });
   now = optOut.dueAt;
   await run(optOut);
-  assert.equal(sent, 1, 'disabled alert never reaches a previous token');
+  assert.equal(sent, 2, 'disabled alert never reaches a previous token');
   await change(enabled);
   const disconnected = queue.at(-1)!;
   family.caregiver = null;
   await change();
   now = disconnected.dueAt;
   await run(disconnected);
-  assert.equal(sent, 1);
+  assert.equal(sent, 2);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM metacare_overdue_deliveries')).rows[0].n, 0);
 });

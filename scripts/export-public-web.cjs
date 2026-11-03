@@ -32,5 +32,10 @@ for (const [name, project] of Object.entries(apps)) {
     stdio: 'inherit',
   });
   fs.accessSync(path.join(dest, 'index.html'), fs.constants.R_OK);
+  if (name === 'caregiver') {
+    const index = path.join(dest, 'index.html');
+    fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace('lang="en"', 'lang="ko"').replace('</head>',
+      '<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/care-icon-192.png"><meta name="theme-color" content="#208472"></head>'));
+  }
   fs.writeFileSync(path.join(build, 'config.json'), JSON.stringify(buildOutput, null, 2) + '\n');
 }

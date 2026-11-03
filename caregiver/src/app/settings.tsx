@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Switch, Text, TextInput, View } from 'react-native';
+import { Linking, Modal, Platform, Switch, Text, TextInput, View } from 'react-native';
 import { Card, Icon, s } from '../../../src/ui';
 import { MotionPressable as Pressable, useReducedMotion } from '../../../src/motion';
 import { CareButton, CarePage, colors, shortTimestamp, styles } from '../components';
@@ -56,17 +56,28 @@ export default function SettingsScreen() {
       <Text style={s.micro}>{mode === 'demo' ? '설정 변경은 예시를 나가면 사라져요.' : '별명과 연락처는 이 기기에만 저장돼요.'}</Text>
     </Card>
     <Card style={{ gap: 12 }}>
-      <Text style={s.section}>미기록 표시 기준</Text><Text style={s.body}>예정 시각에서 아래 시간이 지나면 미기록으로 표시해요.</Text>
+      <Text style={s.section}>복약 미기록 알림</Text><Text style={s.body}>복약 예정 시각에서 얼마나 기다릴까요?</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{OVERDUE_THRESHOLDS.map(threshold => <Pressable key={threshold} accessibilityRole="button" accessibilityLabel={`미기록 기준 ${threshold}분`} accessibilityState={{ selected: prefs.threshold === threshold, disabled: timingDisabled }} disabled={timingDisabled} onPress={() => void changeTiming(threshold, alerts.confirmed?.enabled ?? false)} style={{ minHeight: 44, minWidth: 62, flexGrow: 1, borderRadius: 8, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: prefs.threshold === threshold ? colors.teal : colors.soft }}><Text style={{ color: prefs.threshold === threshold ? 'white' : colors.teal, fontSize: 14, fontWeight: '600' }}>{threshold}분</Text></Pressable>)}</View>
       <View style={[s.row, { gap: 16 }]}>
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={s.label}>미기록 알림 받기</Text>
-          <Text style={s.micro}>{mode === 'demo' ? '환자와 연결한 뒤 켤 수 있어요.' : !supportsCareAlerts ? '설치한 보호자 앱에서 켤 수 있어요.' : '대기 시간이 지나도 기록이 없으면 한 번 알려드려요.'}</Text>
+          <Text style={s.micro}>{mode === 'demo' ? '환자와 연결한 뒤 켤 수 있어요.'
+            : !supportsCareAlerts ? (Platform.OS === 'web' ? '알림을 지원하는 브라우저에서 열어 주세요. 아이폰은 홈 화면에 추가한 뒤 열어 주세요.' : '설치한 보호자 앱에서 켤 수 있어요.')
+            : alerts.otherDevice ? '이미 알림을 받을 곳이 등록돼 있어요. 켜면 이 기기에서 받아요.'
+            : `예정 시각에서 ${prefs.threshold}분 후에도 기록이 없으면 회차마다 한 번 알려드려요.`}</Text>
         </View>
         <Switch accessibilityLabel="미기록 알림 받기" value={canRegister && alerts.confirmed?.enabled === true}
           disabled={!canRegister || timingDisabled} onValueChange={enabled => void changeTiming(prefs.threshold, enabled)}
           trackColor={{ false: '#dfe5ee', true: colors.teal }} />
       </View>
+      {canRegister && alerts.blocked && <View style={{ gap: 8 }}>
+        <Text accessibilityRole="alert" style={[s.micro, { color: colors.amber }]}>{Platform.OS === 'web'
+          ? '브라우저 또는 기기 설정에서 보호자 앱의 알림을 허용한 뒤 다시 켜 주세요.'
+          : '휴대폰 설정에서 보호자 앱의 알림을 허용한 뒤 다시 켜 주세요.'}</Text>
+        {Platform.OS !== 'web' && <CareButton title="휴대폰 설정 열기" secondary onPress={() => {
+          void Linking.openSettings().catch(() => setFormError('휴대폰 설정에서 보호자 앱의 알림을 찾아 허용해 주세요.'));
+        }} />}
+      </View>}
       {!!alerts.error && <Text accessibilityRole="alert" style={[s.micro, { color: colors.amber }]}>{alerts.error}</Text>}
       {canRegister && !alerts.confirmed && (alerts.error
         ? <CareButton title="알림 설정 다시 확인" secondary onPress={() => void alerts.refresh()} />
