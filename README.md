@@ -33,7 +33,9 @@
 
 ## 실행
 
-Node.js 24 환경에서 개발·검증했습니다. 아래 명령은 이 `mobile` 폴더에서 실행합니다. PowerShell 실행 정책으로 `npm`이 차단되면 `npm.cmd`를 사용하세요.
+환자 앱과 보호자 앱의 개발 환경과 EAS 빌드는 Node.js 24.22.2 LTS를 기준으로 합니다. 복약 공유 서버도 Node.js로 실행하며 PHP나 Composer를 사용하지 않습니다. 아래 명령은 저장소 루트에서 실행합니다. PowerShell 실행 정책으로 `npm`이 차단되면 `npm.cmd`를 사용하세요.
+
+윈도우 미리보기 실행 파일은 `.nvmrc` 버전을 선택합니다. 같은 환경에서 아래 명령을 직접 실행하려면 저장소 루트에서 `cmd /k scripts\node-env.cmd`를 열고 `node -v`를 확인하세요.
 
 ```powershell
 npm ci
