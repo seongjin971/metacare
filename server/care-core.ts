@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { HttpError } from './care-errors.ts';
-import { validTimeZone } from './overdue.ts';
+import { isCareTimeZone } from '../shared/care-clock.ts';
 import type { CareSnapshot, PatientSnapshotUpdate, SharedDose, SharedVisit, VisitUpdate } from '../shared/care-types.ts';
 import { isCareName as name, isCareDate as date, isCareTime as time, isSharedVisit, isUpcomingVisit } from '../shared/care-visit.ts';
 
@@ -58,7 +58,7 @@ function validVisitUpdate(value: unknown): value is VisitUpdate {
 
 function snapshotInput(value: unknown, persisted = false): value is PatientSnapshotUpdate {
   if (!record(value) || !keys(value, ['patientName', 'schedule', 'doses', ...(persisted ? ['updatedAt'] : [])], persisted ? ['nextVisit', 'timeZone'] : ['nextVisit', 'visitUpdate', 'timeZone'])
-    || (Object.hasOwn(value, 'timeZone') && !validTimeZone(value.timeZone))
+    || (Object.hasOwn(value, 'timeZone') && !isCareTimeZone(value.timeZone))
     || (Object.hasOwn(value, 'nextVisit') && !isSharedVisit(value.nextVisit))
     || (Object.hasOwn(value, 'visitUpdate') && (!validVisitUpdate(value.visitUpdate) || (!value.visitUpdate.enabled && Object.hasOwn(value, 'nextVisit'))))
     || !name(value.patientName) || (persisted && !iso(value.updatedAt)) || !record(value.schedule)
@@ -155,7 +155,6 @@ export type CareStore = {
   inviteExists(codeHash: string): MaybePromise<boolean>;
   create(patient: Patient): Promise<void>;
   replace(patient: Patient): Promise<void>;
-  alerts?(patient: Patient, method: string, body: unknown, nowMs: number): Promise<CareResult>;
   photoParts?(patientId: string, photoId: string, parts: string[], method: string, body: unknown, role: Role): Promise<CareResult>;
 };
 
@@ -248,8 +247,12 @@ export async function routeCare(store: CareStore, method: string, path: string, 
   if (path.startsWith('/v1/caregiver/')) {
     const patient = await authenticate(store, authorization, 'caregiver');
     const caregiver = patient.caregiver!;
-    if (path === '/v1/caregiver/alerts' && store.alerts && (method === 'GET' || method === 'PUT')) {
-      return await store.alerts(patient, method, body, now());
+    // Older installed apps check this before switching roles or disconnecting.
+    if (path === '/v1/caregiver/alerts') {
+      if (method === 'GET' || (method === 'PUT' && record(body) && body.enabled === false)) {
+        return { status: 200, body: { enabled: false, threshold: 30 } };
+      }
+      throw new HttpError(410, '보호자 알림 서비스가 종료됐어요.');
     }
     if (path === '/v1/caregiver/snapshot' && method === 'GET') {
       const snapshot = patient.snapshot && { ...patient.snapshot };

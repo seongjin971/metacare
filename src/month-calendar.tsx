@@ -13,7 +13,7 @@ export type CalendarDayInfo = {
 
 type Props = {
   month: string;
-  selectedDate: string;
+  selectedDate: string | null;
   today: string;
   onSelectDate: (date: string) => void;
   onChangeMonth: (amount: number) => void;
@@ -37,7 +37,7 @@ export function MonthCalendar({ month, selectedDate, today, onSelectDate, onChan
           <Icon name="chevron-forward" size={20} color={C.navy} />
         </Pressable>
       </View>
-      {(selectedDate !== today || month !== startOfMonth(today)) && <Pressable accessibilityRole="button" accessibilityLabel="오늘로 돌아가기" onPress={onToday} style={styles.todayButton}>
+      {(month !== startOfMonth(today) || (selectedDate !== null && selectedDate !== today)) && <Pressable accessibilityRole="button" accessibilityLabel="오늘로 돌아가기" onPress={onToday} style={styles.todayButton}>
         <Text style={styles.todayLabel}>오늘</Text>
       </Pressable>}
     </View>

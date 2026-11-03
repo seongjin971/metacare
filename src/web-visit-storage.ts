@@ -1,9 +1,16 @@
 import { validateLoadedState, type AppState } from './domain.ts';
 
-/** Only visit data has cross-tab revisions. Never replace unrelated optimistic changes. */
-export function withNewerVisits(state: AppState, saved: AppState): AppState {
-  if (saved.visitsRevision <= state.visitsRevision) return state;
-  return { ...state, visits: saved.visits, visitsRevision: saved.visitsRevision };
+/** Changing the preferred clinic and editing a visit are independent writes. */
+export function mergeNewerVisitData(state: AppState, saved: AppState): AppState {
+  let next = state;
+  if (saved.visitsRevision > state.visitsRevision) {
+    next = { ...next, visits: saved.visits, visitsRevision: saved.visitsRevision };
+  }
+  if (saved.hospitalContactsRevision > state.hospitalContactsRevision) {
+    next = { ...next, hospitalContact: saved.hospitalContact, otherHospitalContacts: saved.otherHospitalContacts,
+      hospitalContactsRevision: saved.hospitalContactsRevision };
+  }
+  return next;
 }
 
 export async function writeWebState(
@@ -14,11 +21,11 @@ export async function writeWebState(
 ): Promise<AppState> {
   const write = () => {
     // AsyncStorage web uses this same localStorage key. Keep the read and write
-    // together so an operation always runs against the latest persisted visits.
+    // together so neither a visit nor a clinic selection is lost to a stale tab.
     const raw = window.localStorage.getItem(key);
     let base = state;
     if (raw !== null) {
-      try { base = withNewerVisits(state, validateLoadedState(JSON.parse(raw))); }
+      try { base = mergeNewerVisitData(state, validateLoadedState(JSON.parse(raw))); }
       catch (error) { if (!replaceUnreadable) throw error; }
     }
     const next = change ? change(base) : base;
@@ -28,7 +35,7 @@ export async function writeWebState(
   return window.navigator.locks ? window.navigator.locks.request(key, write) : write();
 }
 
-export function onWebVisitsChanged(key: string, accept: (saved: AppState) => void) {
+export function onWebVisitDataChanged(key: string, accept: (saved: AppState) => void) {
   const listener = (event: StorageEvent) => {
     if (event.storageArea !== window.localStorage || event.key !== key || !event.newValue) return;
     try { accept(validateLoadedState(JSON.parse(event.newValue))); }

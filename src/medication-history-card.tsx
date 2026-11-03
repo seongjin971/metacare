@@ -18,7 +18,7 @@ function recordedAtLabel(dose: Dose): string | null {
 }
 
 /** Selected-day history stays read-only; today's actions live on the medication screen. */
-export function MedicationHistoryCard({ doses, emptyMessage = '복약 기록이 없어요.' }: { doses: readonly Dose[]; emptyMessage?: string }) {
+export function MedicationHistoryCard({ doses, sample = false, emptyMessage = '복약 기록이 없어요.' }: { doses: readonly Dose[]; sample?: boolean; emptyMessage?: string }) {
   const taken = doses.filter(dose => dose.status === 'taken').length;
 
   return (
@@ -44,7 +44,7 @@ export function MedicationHistoryCard({ doses, emptyMessage = '복약 기록이 
                     <Text style={[styles.statusText, { color: recorded ? C.green : C.muted }]}>
                       {recorded ? recordedAt ? `${recordedAt} 기록` : '기록됨' : '미기록'}
                     </Text>
-                    {recorded && (dose.photo ? <DosePhotoButton photo={dose.photo} label={dose.label} /> : <Text style={s.micro}>자가 기록</Text>)}
+                    {recorded && (dose.photo ? <DosePhotoButton photo={dose.photo} label={dose.label} /> : !sample && <Text style={s.micro}>자가 기록</Text>)}
                   </View>
                 </View>
               </React.Fragment>

@@ -10,11 +10,7 @@ import { careClock, isCareTimeZone } from '../../shared/care-clock';
 import { localDateKey } from '../../src/domain';
 import { makeDemoData } from './demo';
 import { OVERDUE_THRESHOLDS, type OverdueThreshold } from './care-status';
-import { useOverdueAlerts } from './use-overdue-alerts';
-import { ALERT_RECEIPT_KEY } from './device-alert-setting';
-import { clearDeliveredAlerts } from './alert-device';
-import { CAREGIVER_SESSION_KEY as SESSION_KEY } from './suspend-alerts';
-
+const SESSION_KEY = 'metacare.caregiver.session.v1';
 const CACHE_KEY = 'metacare.caregiver.snapshot.v1';
 const PREFS_KEY = 'metacare.caregiver.preferences.v1';
 type Mode = 'disconnected' | 'connected' | 'demo';
@@ -68,8 +64,6 @@ function medicationCache(data: CaregiverData): CaregiverData {
 
 type CareContextValue = {
   ready: boolean; mode: Mode; data: CaregiverData | null; prefs: CarePreferences; now: Date;
-  alerts: ReturnType<typeof useOverdueAlerts>;
-  offerAlerts: boolean; dismissAlertOffer: () => void;
   today: string; medicationClock?: ReturnType<typeof careClock>;
   fetchedAt: string | null; syncing: boolean; busy: boolean; networkError: boolean; error: string | null;
   connect: (code: string) => Promise<boolean>; patientName: string;
@@ -83,7 +77,6 @@ const CareContext = createContext<CareContextValue | null>(null);
 
 export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [offerAlerts, setOfferAlerts] = useState(false);
   const [mode, setMode] = useState<Mode>('disconnected');
   const [data, setData] = useState<CaregiverData | null>(null);
   const [prefs, setPrefs] = useState<CarePreferences>({ ...defaults });
@@ -94,8 +87,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [networkError, setNetworkError] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [clock, setClock] = useState(() => new Date());
-  const [demoDate, setDemoDate] = useState(() => localDateKey());
+  const [now, setClock] = useState(() => new Date());
   const sessionRef = useRef<Session | null>(null);
   const pendingSessionRef = useRef<Session | null>(null);
   const modeRef = useRef<Mode>('disconnected');
@@ -103,7 +95,6 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const requestRef = useRef<object | null>(null);
   const mutationRef = useRef(false);
   const storageQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const alerts = useOverdueAlerts(activeSession?.token, activeSession?.cacheId);
 
   // Serialize disk changes as well as guarding network responses. An old write can
   // never restore a token or snapshot after disconnect/revocation.
@@ -115,8 +106,6 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
 
   const clearPrivateState = useCallback(async (notice: string | null = null) => {
     epoch.current += 1;
-    clearDeliveredAlerts();
-    setOfferAlerts(false);
     const generation = epoch.current;
     sessionRef.current = null;
     setActiveSession(null);
@@ -128,7 +117,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     setSyncing(false); setBusy(false); setNetworkError(false); setError(notice);
     await persist(async () => {
       // Always remove the old cache before a later session write in this queue.
-      await Promise.all([clearSession(SESSION_KEY), clearSession(ALERT_RECEIPT_KEY), AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY])]);
+      await Promise.all([clearSession(SESSION_KEY), AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY])]);
     }).catch(() => {
       if (epoch.current === generation) setError('기기에 저장된 연결 정보 삭제를 완료하지 못했어요. 앱을 다시 열어 확인해 주세요.');
     });
@@ -171,6 +160,8 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     const generation = epoch.current;
+    // Older versions kept a push registration receipt separate from the family session.
+    void clearSession('metacare.caregiver.alert-receipt.v1').catch(() => {});
     void (async () => {
       try {
         const [session, savedCache, savedPreferences] = await Promise.all([
@@ -188,7 +179,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
             }
           } catch { /* A corrupt cache must not prevent reconnecting. */ }
         } else {
-          await persist(() => Promise.all([clearSession(SESSION_KEY), clearSession(ALERT_RECEIPT_KEY), AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY])]));
+          await persist(() => Promise.all([clearSession(SESSION_KEY), AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY])]));
         }
       } catch {
         if (mounted) setError('저장된 연결을 불러오지 못했어요. 연결 정보를 다시 입력해 주세요.');
@@ -222,14 +213,12 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
       // A new family's session cannot be saved while an old private cache or
       // contact remains. Retrying uses this exact issued session, never the code.
       await AsyncStorage.multiRemove([CACHE_KEY, PREFS_KEY]);
-      await clearSession(ALERT_RECEIPT_KEY);
       await writeSession(SESSION_KEY, session);
     });
     if (epoch.current !== generation || pendingSessionRef.current !== session) return false;
     sessionRef.current = session; pendingSessionRef.current = null; setPendingPatient(null);
     modeRef.current = 'connected'; setMode('connected');
     setActiveSession(session);
-    setOfferAlerts(true);
     setPrefs({ ...defaults, caregiverName: session.caregiverName });
     setData(null); setFetchedAt(null); setNetworkError(false); setError(null);
     return true;
@@ -327,8 +316,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const startDemo = useCallback(() => {
     if (mutationRef.current || pendingSessionRef.current || modeRef.current !== 'disconnected') return;
     epoch.current += 1;
-    const date = localDateKey();
-    setDemoDate(date); modeRef.current = 'demo'; setMode('demo'); setData(makeDemoData(date));
+    modeRef.current = 'demo'; setMode('demo'); setData(makeDemoData());
     setPrefs({ ...defaults, patientNickname: '엄마', caregiverName: '보호자' });
     setFetchedAt(null); setNetworkError(false); setError(null);
   }, []);
@@ -369,13 +357,11 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearPrivateState, photoTransfer]);
 
-  const now = mode === 'demo' ? new Date(`${demoDate}T14:20:00`) : clock;
   const timeZone = data?.snapshot?.timeZone;
   const medicationClock = useMemo(() => isCareTimeZone(timeZone) ? careClock(timeZone) : undefined, [timeZone]);
   const today = medicationClock?.wall(now.getTime()).slice(0, 10) ?? localDateKey(now);
   const patientName = data?.snapshot?.patientName.trim() || activeSession?.patientName.trim() || '환자';
-  const effectivePrefs = alerts.confirmed?.enabled ? { ...prefs, threshold: alerts.confirmed.threshold } : prefs;
-  return <CareContext.Provider value={{ ready, mode, data, prefs: effectivePrefs, alerts, offerAlerts, dismissAlertOffer: () => setOfferAlerts(false), now, today, medicationClock, fetchedAt, syncing, busy, networkError, error, connect, patientName, pendingPatient, retryConnectionStorage, cancelPendingConnection, refresh, disconnect, startDemo, exitDemo, savePreferences, loadPhoto, clearError: () => setError(null) }}>{children}</CareContext.Provider>;
+  return <CareContext.Provider value={{ ready, mode, data, prefs, now, today, medicationClock, fetchedAt, syncing, busy, networkError, error, connect, patientName, pendingPatient, retryConnectionStorage, cancelPendingConnection, refresh, disconnect, startDemo, exitDemo, savePreferences, loadPhoto, clearError: () => setError(null) }}>{children}</CareContext.Provider>;
 }
 
 export function useCaregiver() {

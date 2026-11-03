@@ -11,7 +11,7 @@ export type NotificationSyncResult = {
 function unsupported(): NotificationSyncResult {
   return {
     status: 'unsupported',
-    message: '브라우저 미리보기에서는 기기 알림을 보내지 않아요. Android·iPhone 앱에서 확인해 주세요.',
+    message: '복약·진료 일정 알림은 휴대폰에 설치한 메타케어 앱에서 받을 수 있어요.',
     count: 0,
   };
 }

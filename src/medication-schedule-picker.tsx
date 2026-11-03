@@ -1,8 +1,5 @@
 import React, { useState } from 'react';
-import {
-  KeyboardAvoidingView, Modal, Platform, ScrollView,
-  StyleSheet, Text, TextInput, View,
-} from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   defaultMedicationSchedule, MEDICATION_FREQUENCIES, normalizeMedicationSchedule,
@@ -10,8 +7,8 @@ import {
 } from './medication-schedule';
 import { Button, C, Icon, s } from './ui';
 import { FadeIn, MotionPressable as Pressable, useReducedMotion } from './motion';
+import { TimePicker } from './time-picker';
 
-type TimeInput = { hour: string; minute: string };
 type Props = {
   value: MedicationSchedule;
   appliesTomorrow: boolean;
@@ -19,41 +16,31 @@ type Props = {
   onClose: () => void;
 };
 
-function timeInputs(times: string[]): TimeInput[] {
-  return times.map(time => {
-    const [hour, minute] = time.split(':');
-    return { hour, minute };
-  });
-}
-
 export function MedicationSchedulePicker({ value, appliesTomorrow, onSave, onClose }: Props) {
   const reducedMotion = useReducedMotion();
   const [frequency, setFrequency] = useState(value.frequency);
-  const [drafts, setDrafts] = useState<Record<MedicationFrequency, TimeInput[]>>(() => ({
-    once: timeInputs(defaultMedicationSchedule('once').times),
-    twice: timeInputs(defaultMedicationSchedule('twice').times),
-    three: timeInputs(defaultMedicationSchedule('three').times),
-    [value.frequency]: timeInputs(value.times),
+  const [drafts, setDrafts] = useState<Record<MedicationFrequency, string[]>>(() => ({
+    once: defaultMedicationSchedule('once').times,
+    twice: defaultMedicationSchedule('twice').times,
+    three: defaultMedicationSchedule('three').times,
+    [value.frequency]: [...value.times],
   }));
   const [error, setError] = useState('');
   const inset = useSafeAreaInsets();
   const option = MEDICATION_FREQUENCIES.find(item => item.value === frequency)!;
-  const times = drafts[frequency].map(item => `${item.hour.padStart(2, '0')}:${item.minute.padStart(2, '0')}`);
+  const times = drafts[frequency];
   const changed = frequency !== value.frequency || times.some((time, index) => time !== value.times[index]);
 
-  const edit = (index: number, field: keyof TimeInput, text: string) => {
+  const setTime = (index: number, time: string) => {
     setDrafts(current => ({
       ...current,
-      [frequency]: current[frequency].map((item, position) => position === index ? { ...item, [field]: text } : item),
+      [frequency]: current[frequency].map((item, position) => position === index ? time : item),
     }));
     setError('');
   };
 
   const save = () => {
     try {
-      if (drafts[frequency].some(item => !/^\d{1,2}$/.test(item.hour) || !/^\d{1,2}$/.test(item.minute))) {
-        throw new Error('시와 분을 모두 입력해 주세요.');
-      }
       onSave(normalizeMedicationSchedule({ frequency, times }));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : '복약 시간을 확인해 주세요.');
@@ -62,15 +49,11 @@ export function MedicationSchedulePicker({ value, appliesTomorrow, onSave, onClo
 
   return (
     <Modal visible transparent animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={[styles.backdrop, { paddingTop: Math.max(16, inset.top), paddingBottom: Math.max(16, inset.bottom) }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        enabled={Platform.OS !== 'web'}
-      >
+      <View style={[styles.backdrop, { paddingTop: Math.max(16, inset.top), paddingBottom: Math.max(16, inset.bottom) }]}>
         <FadeIn accessibilityViewIsModal accessibilityLabel="복약 설정" style={styles.panel}>
           <Text accessibilityRole="header" style={styles.heading}>복약 설정</Text>
-          <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll} contentContainerStyle={styles.content}>
-            <View style={styles.choices}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+            <View accessibilityRole="radiogroup" accessibilityLabel="복약 횟수" style={styles.choices}>
               {MEDICATION_FREQUENCIES.map(item => {
                 const checked = frequency === item.value;
                 return (
@@ -79,6 +62,7 @@ export function MedicationSchedulePicker({ value, appliesTomorrow, onSave, onClo
                     accessibilityRole="radio"
                     accessibilityLabel={item.label}
                     accessibilityState={{ checked }}
+                    aria-checked={checked}
                     onPress={() => { setFrequency(item.value); setError(''); }}
                     style={[styles.choice, checked && styles.selected]}
                   >
@@ -89,39 +73,13 @@ export function MedicationSchedulePicker({ value, appliesTomorrow, onSave, onClo
               })}
             </View>
             <View>
-              <View style={[s.row, { marginBottom: 6 }]}>
-                <Text style={s.section}>복약 시간</Text>
-                <Text style={s.muted}>24시간 기준</Text>
-              </View>
-              {drafts[frequency].map((time, index) => (
+              <Text style={s.section}>복약 시간</Text>
+              {times.map((time, index) => (
                 <View key={`${frequency}-${index}`} style={styles.timeRow}>
                   <Text style={styles.timeLabel}>{option.timeLabels[index]}</Text>
-                  <View style={styles.timeFields}>
-                    <TextInput
-                      accessibilityLabel={`${option.timeLabels[index]} 시`}
-                      value={time.hour}
-                      onChangeText={text => edit(index, 'hour', text.replace(/\D/g, ''))}
-                      onBlur={() => time.hour && edit(index, 'hour', time.hour.padStart(2, '0'))}
-                      keyboardType="number-pad"
-                      selectTextOnFocus
-                      maxLength={2}
-                      placeholder="시"
-                      placeholderTextColor={C.muted}
-                      style={[s.input, styles.timeInput]}
-                    />
-                    <Text style={styles.colon}>:</Text>
-                    <TextInput
-                      accessibilityLabel={`${option.timeLabels[index]} 분`}
-                      value={time.minute}
-                      onChangeText={text => edit(index, 'minute', text.replace(/\D/g, ''))}
-                      onBlur={() => time.minute && edit(index, 'minute', time.minute.padStart(2, '0'))}
-                      keyboardType="number-pad"
-                      selectTextOnFocus
-                      maxLength={2}
-                      placeholder="분"
-                      placeholderTextColor={C.muted}
-                      style={[s.input, styles.timeInput]}
-                    />
+                  <View style={styles.timeField}>
+                    <TimePicker label={frequency === 'once' ? '복약 시간 선택' : `${option.timeLabels[index]} 복약 시간 선택`}
+                      value={time} initialTime={time} onChange={next => setTime(index, next)} />
                   </View>
                 </View>
               ))}
@@ -134,7 +92,7 @@ export function MedicationSchedulePicker({ value, appliesTomorrow, onSave, onClo
             <View style={{ flex: 1 }}><Button title="저장" disabled={!changed} onPress={save} /></View>
           </View>
         </FadeIn>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -151,9 +109,7 @@ const styles = StyleSheet.create({
   optionText: { flex: 1, color: C.navy, fontSize: 15, fontWeight: '600' },
   timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 8 },
   timeLabel: { flex: 1, color: C.navy, fontSize: 15 },
-  timeFields: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  timeInput: { width: 58, textAlign: 'center', textAlignVertical: 'center', fontSize: 18, fontWeight: '600' },
-  colon: { color: C.navy, fontSize: 18 },
+  timeField: { flex: 2 },
   error: { color: '#b04444', fontSize: 13, lineHeight: 20 },
   footer: { flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: 1, borderColor: C.line },
 });

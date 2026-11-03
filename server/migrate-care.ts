@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
 
 export async function migrateCare(pool: Pool) {
-  const files = ['./vercel-care.sql', './vercel-photos.sql', './vercel-overdue.sql'];
+  const files = ['./vercel-care.sql', './vercel-photos.sql', './retire-caregiver-push.sql'];
   const statements = await Promise.all(files.map(file => readFile(new URL(file, import.meta.url), 'utf8')));
   const client = await pool.connect();
   try {

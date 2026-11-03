@@ -39,6 +39,8 @@ export type AppState = {
   visits: Visit[];
   visitsRevision: number;
   hospitalContact: HospitalContact;
+  otherHospitalContacts: HospitalContact[];
+  hospitalContactsRevision: number;
   doses: Dose[];
   medicationSchedule: MedicationSchedule;
   sharing: { caregiver: boolean; hospital: boolean };
@@ -123,6 +125,8 @@ export function createInitialState(now = new Date()): AppState {
     visits: [],
     visitsRevision: 0,
     hospitalContact: { ...EMPTY_CONTACT },
+    otherHospitalContacts: [],
+    hospitalContactsRevision: 0,
     doses: dosesForDate(localDateKey(now), medicationSchedule),
     medicationSchedule,
     sharing: { caregiver: false, hospital: false },
@@ -192,8 +196,38 @@ function normalizeHospitalContact(input: HospitalContact): HospitalContact {
   return { name, phone, bookingUrl };
 }
 
-export function setHospitalContact(state: AppState, input: HospitalContact): AppState {
-  return { ...state, hospitalContact: normalizeHospitalContact(input) };
+function sameContact(a: HospitalContact, b: HospitalContact): boolean {
+  return a.name === b.name && a.phone === b.phone && a.bookingUrl === b.bookingUrl;
+}
+
+/** Edit (or forget) the current contact without changing previously saved visits. */
+export function setHospitalContact(state: AppState, input: HospitalContact, now = new Date()): AppState {
+  const hospitalContact = normalizeHospitalContact(input);
+  if (sameContact(state.hospitalContact, hospitalContact)) return state;
+  if (state.otherHospitalContacts.some(contact => contact.name === hospitalContact.name)) {
+    throw new Error('이미 저장한 병원이에요. 진료 일정에서 해당 병원을 선택해 주세요.');
+  }
+  return { ...state, hospitalContact, hospitalContactsRevision: nextVisitRevision(state.hospitalContactsRevision, now) };
+}
+
+/** An explicitly chosen hospital is a default for future visits only. */
+export function selectHospital(state: AppState, name: string, phone = '', now = new Date()): AppState {
+  const key = name.trim();
+  if (!key) throw new Error('병원 이름을 입력해 주세요.');
+  const contacts = [state.hospitalContact, ...state.otherHospitalContacts];
+  const known = contacts.find(contact => contact.name === key);
+  const hospitalContact = normalizeHospitalContact({
+    name: key, phone: phone || known?.phone || '', bookingUrl: known?.bookingUrl || '',
+  });
+  if (sameContact(state.hospitalContact, hospitalContact)) return state;
+  return { ...state, hospitalContact,
+    otherHospitalContacts: contacts.filter(contact => !!contact.name && contact.name !== key),
+    hospitalContactsRevision: nextVisitRevision(state.hospitalContactsRevision, now) };
+}
+
+export function hospitalNames(state: AppState): string[] {
+  return [...new Set([state.hospitalContact.name, ...state.otherHospitalContacts.map(contact => contact.name),
+    ...state.visits.slice().reverse().map(visit => visit.hospitalName)].filter(Boolean))];
 }
 
 export function recordDose(state: AppState, doseId: string, taken: boolean, now = new Date(), photo?: DosePhoto): AppState {
@@ -298,7 +332,7 @@ function validArray(value: unknown, check: (record: Record<string, unknown>) => 
 
 /** Reject corrupted device storage instead of trusting its TypeScript cast. */
 export function validateLoadedState(value: unknown): AppState {
-  const invalid = (): never => { throw new Error('저장된 앱 데이터를 읽을 수 없어요. 예시 데이터로 초기화해 주세요.'); };
+  const invalid = (): never => { throw new Error('저장된 기록을 읽을 수 없어요.'); };
   if (!isObject(value) || value.version !== 1) return invalid();
   if (!isObject(value.sharing) || typeof value.sharing.caregiver !== 'boolean' || typeof value.sharing.hospital !== 'boolean') return invalid();
   if (!isObject(value.reminders) || typeof value.reminders.appointment !== 'boolean' || typeof value.reminders.medication !== 'boolean') return invalid();
@@ -306,6 +340,7 @@ export function validateLoadedState(value: unknown): AppState {
   let medicationMinutesBefore: number[];
   let medicationSchedule: MedicationSchedule;
   let hospitalContact: HospitalContact;
+  let otherHospitalContacts: HospitalContact[];
   try {
     appointmentMinutesBefore = normalizeReminderOffsets('appointment', value.reminders.appointmentMinutesBefore === undefined
       ? DEFAULT_REMINDER_OFFSETS.appointment : value.reminders.appointmentMinutesBefore);
@@ -315,6 +350,13 @@ export function validateLoadedState(value: unknown): AppState {
       ? defaultMedicationSchedule() : normalizeMedicationSchedule(value.medicationSchedule);
     hospitalContact = value.hospitalContact === undefined
       ? { ...EMPTY_CONTACT } : normalizeHospitalContact(value.hospitalContact as HospitalContact);
+    if (value.otherHospitalContacts !== undefined && !Array.isArray(value.otherHospitalContacts)) return invalid();
+    otherHospitalContacts = (value.otherHospitalContacts ?? []).map(normalizeHospitalContact);
+    const names = new Set([hospitalContact.name]);
+    for (const contact of otherHospitalContacts) {
+      if (!contact.name || names.has(contact.name)) return invalid();
+      names.add(contact.name);
+    }
   } catch { return invalid(); }
   if (!validArray(value.appointments, (item) => hasIdAndCreatedAt(item)
     && LEGACY_DOCTORS.has(item.doctorId) && isDateKey(item.date) && isTime(item.time)
@@ -323,6 +365,8 @@ export function validateLoadedState(value: unknown): AppState {
     isCareName(item.hospitalName, 80) && isDateKey(item.date) && isTime(item.time))) return invalid();
   if (value.visitsRevision !== undefined && (typeof value.visitsRevision !== 'number' ||
     !Number.isSafeInteger(value.visitsRevision) || value.visitsRevision < 0)) return invalid();
+  if (value.hospitalContactsRevision !== undefined && (typeof value.hospitalContactsRevision !== 'number' ||
+    !Number.isSafeInteger(value.hospitalContactsRevision) || value.hospitalContactsRevision < 0)) return invalid();
   if (!validArray(value.doses, (item) => isDateKey(item.date) && isTime(item.time) && isString(item.label, 200) && !!item.label.trim()
     && isString(item.description, 2000) && (item.status === 'pending' || item.status === 'taken')
     && (item.status === 'taken' ? isTimestamp(item.takenAt)
@@ -340,9 +384,10 @@ export function validateLoadedState(value: unknown): AppState {
   if (sameOffsets(value.reminders.appointmentMinutesBefore, appointmentMinutesBefore)
     && sameOffsets(value.reminders.medicationMinutesBefore, medicationMinutesBefore)
     && value.medicationSchedule !== undefined && state.visits && state.visitsRevision !== undefined && state.hospitalContact
-    && state.hospitalContact.name === hospitalContact.name && state.hospitalContact.phone === hospitalContact.phone
-    && state.hospitalContact.bookingUrl === hospitalContact.bookingUrl) return state;
+    && sameContact(state.hospitalContact, hospitalContact) && state.hospitalContactsRevision !== undefined
+    && state.otherHospitalContacts?.every((contact, index) => sameContact(contact, otherHospitalContacts[index]))) return state;
   // Legacy simulated appointments stay archived and never become actual visit schedules.
   return { ...state, visits: state.visits ?? [], visitsRevision: state.visitsRevision ?? 0, hospitalContact, medicationSchedule,
+    otherHospitalContacts, hospitalContactsRevision: state.hospitalContactsRevision ?? 0,
     reminders: { ...state.reminders, appointmentMinutesBefore, medicationMinutesBefore } };
 }

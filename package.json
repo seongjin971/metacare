@@ -2,6 +2,13 @@
   "name": "metacare-mobile",
   "version": "1.0.0",
   "main": "expo-router/entry",
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": ["expo-camera"]
+      }
+    }
+  },
   "engines": {
     "node": ">=24.22.2 <25"
   },
@@ -11,15 +18,12 @@
   "overrides": {
     "glob@^13": "14.0.3",
     "minimatch@^3": "$minimatch",
-    "minimatch@^10": "11.0.4",
-    "@vercel/oidc": {
-      "@vercel/cli-config": "0.3.6"
-    }
+    "minimatch@^10": "11.0.4"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "@vercel/queue": "0.11.0",
+    "@react-native-community/datetimepicker": "9.2.1",
     "expo": "~58.0.22",
     "expo-camera": "~58.0.14",
     "expo-constants": "~58.0.13",
@@ -37,14 +41,12 @@
     "react-native": "0.88.0",
     "react-native-safe-area-context": "~5.10.1",
     "react-native-screens": "~4.30.0",
-    "react-native-web": "^0.21.4",
-    "web-push": "3.6.7"
+    "react-native-web": "^0.21.4"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
     "@types/pg": "^8.23.1",
     "@types/react": "~19.3.0",
-    "@types/web-push": "3.6.4",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~58.0.4",
     "minimatch": "file:tools/eslint-minimatch",

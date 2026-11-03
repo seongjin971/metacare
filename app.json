@@ -3,7 +3,7 @@
     "name": "메타케어",
     "slug": "metacare",
     "scheme": "metacare",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/metacare-icon.png",
     "userInterfaceStyle": "light",
@@ -11,7 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.metacare.demo",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "보호자 앱과 복약 기록을 공유하기 위해 개발 서버에 연결합니다.",
+        "NSLocalNetworkUsageDescription": "같은 네트워크의 복약 공유 서버에 연결할 때 사용합니다.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
@@ -19,7 +19,13 @@
     },
     "android": {
       "package": "com.metacare.demo",
-      "versionCode": 3,
+      "versionCode": 4,
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/metacare-adaptive.png",
         "backgroundColor": "#3066e9"
@@ -36,6 +42,8 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/with-android-camera-capture.cjs",
+      "@react-native-community/datetimepicker",
       [
         "expo-camera",
         {
@@ -48,7 +56,8 @@
       [
         "expo-notifications",
         {
-          "defaultChannel": "caregiver-overdue",
+          "defaultChannel": "metacare-private-reminders",
+          "enableBackgroundRemoteNotifications": false,
           "color": "#3066e9"
         }
       ],

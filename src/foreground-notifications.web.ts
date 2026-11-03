@@ -1,7 +1,6 @@
-import { clearCareAlertLaunch } from './care-alert-launch.web';
-
-export function setForegroundNotificationRole(role: 'patient' | 'caregiver' | null) {
-  // Opening an old guardian notification in patient mode must not replay it if the
-  // user later changes roles in the same page.
-  if (role === 'patient') clearCareAlertLaunch();
+export function setForegroundNotificationRole(_role: 'patient' | 'caregiver' | null) {
+  // Previously issued web alerts may open a URL containing medication timing.
+  if (window.location.hash.startsWith('#care-alert=')) {
+    history.replaceState(history.state, '', window.location.pathname + window.location.search);
+  }
 }

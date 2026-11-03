@@ -20,7 +20,6 @@
     "expo-constants": "~58.0.13",
     "expo-font": "~58.0.10",
     "expo-linking": "~58.0.15",
-    "expo-notifications": "~58.1.7",
     "expo-router": "~58.0.28",
     "expo-secure-store": "~58.0.2",
     "expo-status-bar": "~58.0.4",

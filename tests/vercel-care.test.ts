@@ -98,6 +98,16 @@ test('Vercel handlers share durable pairing, scoped snapshots, multipart photos 
   const visit = { hospitalName: '시연 의원', date: '2026-11-02', time: '10:01' };
   const withVisit = { ...snapshot, nextVisit: visit, visitUpdate: { connectedAt: pair.connectedAt, enabled: true, consentRevision: 1, scheduleRevision: 1 } };
   assert.equal((await api(first, '/v1/patient/snapshot', 'PUT', patient, withVisit)).status, 200);
+  // Emulate the two credential-bearing columns from the retired schema.
+  await one.query('CREATE TABLE metacare_overdue_settings(push_token text, next_job jsonb)');
+  await one.query("INSERT INTO metacare_overdue_settings VALUES ('retired-test-target', '{}')");
+  await migrateCare(one);
+  await migrateCare(two);
+  assert.deepEqual((await one.query('SELECT * FROM metacare_overdue_settings')).rows, [{ push_token: null, next_job: null }]);
+  await assert.rejects(one.query("UPDATE metacare_overdue_settings SET push_token = 'stale-client'"), { code: '23514' });
+  assert.deepEqual(await (await api(first, '/v1/caregiver/alerts', 'GET', guardian)).json(), { enabled: false, threshold: 30 });
+  assert.equal((await api(second, '/v1/caregiver/alerts', 'PUT', guardian, { enabled: true })).status, 410);
+  assert.equal((await api(first, '/v1/web-push/key')).status, 404);
   const synced = await (await api(second, '/v1/caregiver/snapshot', 'GET', guardian)).json() as CaregiverData;
   assert.equal(synced.photoTransfer, 'parts-v1');
   assert.equal(synced.snapshot?.doses[0].takenAt, new Date(now).toISOString());

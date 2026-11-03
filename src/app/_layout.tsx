@@ -1,4 +1,3 @@
-import '../care-alert-launch';
 import React from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -11,6 +10,7 @@ function Navigation() {
   const { role } = useAppRole();
   return <Stack screenOptions={{ headerShown: false, animation: 'none' }}>
     <Stack.Screen name="index" />
+    <Stack.Screen name="sample" />
     <Stack.Protected guard={role !== null}>
       <Stack.Screen name="settings" />
       <Stack.Screen name="history" />

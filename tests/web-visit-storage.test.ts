@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addVisit, createInitialState, removeVisit, setReminderOffsets } from '../src/domain.ts';
-import { withNewerVisits, writeWebState } from '../src/web-visit-storage.ts';
+import { addVisit, createInitialState, removeVisit, selectHospital, setReminderOffsets } from '../src/domain.ts';
+import { mergeNewerVisitData, writeWebState } from '../src/web-visit-storage.ts';
 
 test('two stale tabs retain independent visit edits, and an unrelated later save cannot resurrect a deletion', async t => {
   const data = new Map<string, string>();
@@ -31,6 +31,19 @@ test('two stale tabs retain independent visit edits, and an unrelated later save
   assert.deepEqual(final.visits, removed.visits);
   assert.equal(final.visitsRevision, removed.visitsRevision);
   assert.deepEqual(final.reminders.medicationMinutesBefore, [17]);
-  assert.deepEqual(withNewerVisits(b, removed).visits, removed.visits);
-  assert.equal(withNewerVisits(final, a), final);
+  assert.deepEqual(mergeNewerVisitData(b, removed).visits, removed.visits);
+  assert.equal(mergeNewerVisitData(final, a), final);
+});
+
+test('changing the preferred clinic in one tab preserves a visit booked for another clinic', () => {
+  const now = new Date(2026, 10, 2, 8);
+  const original = selectHospital(createInitialState(now), '기존 병원', '0212345678', now);
+  const changed = selectHospital(original, '새 병원', '', now);
+  const booked = addVisit(original, { hospitalName: '기존 병원', date: '2026-11-04', time: '14:30' }, now);
+  for (const merged of [mergeNewerVisitData(booked, changed), mergeNewerVisitData(changed, booked)]) {
+    assert.deepEqual(merged.visits, booked.visits);
+    assert.deepEqual(merged.hospitalContact, changed.hospitalContact);
+    assert.deepEqual(merged.otherHospitalContacts, [original.hospitalContact]);
+    assert.equal(mergeNewerVisitData(merged, original), merged);
+  }
 });

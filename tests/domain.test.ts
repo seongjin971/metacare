@@ -3,7 +3,7 @@ import test from 'node:test';
 import { photoFor } from './fixtures.ts';
 import {
   addDays, addVisit, createInitialState, ensureDailyDoses, localDateKey,
-  recordDose, removeVisit, setHospitalContact, setSharing, upcomingVisits,
+  hospitalNames, recordDose, removeVisit, selectHospital, setHospitalContact, setSharing, upcomingVisits,
   validateLoadedState, visibleDoses,
 } from '../src/domain.ts';
 
@@ -86,6 +86,32 @@ test('saved hospital shortcuts normalize dialable numbers and accept only HTTPS 
     assert.throws(() => validateLoadedState({ ...state, hospitalContact: { ...contact, bookingUrl } }));
   }
   assert.deepEqual(setHospitalContact(saved, { name: '', phone: '', bookingUrl: '' }).hospitalContact, state.hospitalContact);
+});
+
+test('selecting a hospital retains legacy contact details and the hospital on each saved visit', () => {
+  const state = addVisit(createInitialState(now), visit, now);
+  const oldContact = { name: '기존병원', phone: '0211112222', bookingUrl: 'https://example.org/booking' };
+  const legacy: Record<string, unknown> = { ...state, hospitalContact: oldContact };
+  delete legacy.hospitalContactsRevision;
+  delete legacy.otherHospitalContacts;
+  const loaded = validateLoadedState(legacy);
+  assert.deepEqual(hospitalNames(loaded), ['기존병원', visit.hospitalName]);
+  const next = selectHospital(loaded, ' 신규의원 ', '', now);
+  assert.deepEqual(next.hospitalContact, { name: '신규의원', phone: '', bookingUrl: '' });
+  assert.deepEqual(next.otherHospitalContacts, [oldContact]);
+  assert.equal(next.visits, loaded.visits);
+  assert.equal(next.visitsRevision, loaded.visitsRevision);
+  assert.equal(next.hospitalContactsRevision, now.getTime());
+  const back = selectHospital(validateLoadedState(JSON.parse(JSON.stringify(next))), oldContact.name, '', now);
+  assert.deepEqual(back.hospitalContact, oldContact);
+  assert.deepEqual(back.otherHospitalContacts, [next.hospitalContact]);
+  assert.equal(back.hospitalContactsRevision, next.hospitalContactsRevision + 1);
+  assert.deepEqual(back.visits, loaded.visits);
+  assert.equal(selectHospital(back, oldContact.name), back);
+  assert.deepEqual(hospitalNames(selectHospital(back, visit.hospitalName)), [visit.hospitalName, oldContact.name, '신규의원']);
+  assert.throws(() => setHospitalContact(back, { ...oldContact, name: '신규의원' }));
+  assert.throws(() => validateLoadedState({ ...back, otherHospitalContacts: [oldContact] }));
+  assert.throws(() => validateLoadedState({ ...back, otherHospitalContacts: [{ ...oldContact, name: '다른병원', bookingUrl: 'http://example.org' }] }));
 });
 
 test('dose recording is idempotent and undo retains an audit trail', () => {

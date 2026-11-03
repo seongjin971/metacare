@@ -1,22 +1,54 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState as NativeAppState, Modal, Platform, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, createInitialState, ensureDailyDoses, validateLoadedState } from './domain';
 import { NotificationSyncResult, syncReminders } from './notifications';
 import { FadeIn, MotionPressable as Pressable, useReducedMotion } from './motion';
 import { PatientSharingProvider } from './caregiver-link';
-import { onWebVisitsChanged, withNewerVisits, writeWebState } from './web-visit-storage';
+import { mergeNewerVisitData, onWebVisitDataChanged, writeWebState } from './web-visit-storage';
+import { createSamplePatientState } from './sample-patient-state';
+import { restoreSampleMedication, SAMPLE_MEDICATION_KEY, serializeSampleMedication, withSampleMedicationHistory } from './sample-medication-storage';
 
 const STORAGE_KEY = 'metacare.demo.v1';
 export type Dialog = {
   title: string; body: string; label: string; cancelLabel?: string; destructive?: boolean; onConfirm: () => void;
 };
-type Store = { state: AppState; update: (change: (s: AppState) => AppState, message?: string) => boolean; commit: (change: (s: AppState) => AppState, message?: string) => Promise<boolean>; notify: (message: string) => void; confirm: (dialog: Dialog) => void; notificationStatus: NotificationSyncResult; setNotificationStatus: (v: NotificationSyncResult) => void; now: Date };
+type Store = { sample: boolean; state: AppState; update: (change: (s: AppState) => AppState, message?: string) => boolean; commit: (change: (s: AppState) => AppState, message?: string) => Promise<boolean>; notify: (message: string) => void; confirm: (dialog: Dialog) => void; notificationStatus: NotificationSyncResult; setNotificationStatus: (v: NotificationSyncResult) => void; now: Date };
 const Context = createContext<Store | null>(null);
 export function useCare() { const value = useContext(Context); if (!value) throw new Error('CareProvider required'); return value; }
 
-export function CareProvider({ children }: { children: React.ReactNode }) {
-  const reducedMotion = useReducedMotion();
+export function SampleCareProvider({ children }: { children: React.ReactNode }) {
+  if (Platform.OS !== 'web') return <CareProvider sample>{children}</CareProvider>;
+  return <WebSampleCareProvider>{children}</WebSampleCareProvider>;
+}
+
+function WebSampleCareProvider({ children }: { children: React.ReactNode }) {
+  const [now] = useState(() => new Date());
+  const [state, setState] = useState(() => createSamplePatientState(now));
+  const current = useRef(state);
+  const [message, setMessage] = useState('');
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [notificationStatus, setNotificationStatus] = useState<NotificationSyncResult>({ status: 'disabled', message: '', count: 0 });
+  const update = useCallback<Store['update']>((change, success) => {
+    try {
+      const next = change(current.current);
+      current.current = next;
+      setState(next);
+      if (success) setMessage(success);
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '처리하지 못했습니다. 다시 시도해 주세요.');
+      return false;
+    }
+  }, []);
+  const commit = useCallback<Store['commit']>(async (change, success) => update(change, success), [update]);
+  return <Context.Provider value={{ sample: true, state, update, commit, notify: setMessage, confirm: setDialog, notificationStatus, setNotificationStatus, now }}>
+    {children}
+    <CareFeedback message={message} setMessage={setMessage} dialog={dialog} setDialog={setDialog} />
+  </Context.Provider>;
+}
+
+export function CareProvider({ children, sample = false }: { children: React.ReactNode; sample?: boolean }) {
   const [state, setState] = useState<AppState>(() => createInitialState());
   // Sharing observes successful disk writes, never optimistic UI changes.
   const [durableState, setDurableState] = useState<AppState | null>(null);
@@ -40,28 +72,29 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
       return saved;
     }
     const next = change ? change(base) : base;
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    if (sample) await AsyncStorage.setItem(SAMPLE_MEDICATION_KEY, serializeSampleMedication(next));
+    else await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     return next;
-  }, []);
-  const receiveVisits = useCallback((saved: AppState) => {
-    const next = withNewerVisits(current.current, saved);
+  }, [sample]);
+  const receiveVisitData = useCallback((saved: AppState) => {
+    const next = mergeNewerVisitData(current.current, saved);
     if (next !== current.current) { current.current = next; setState(next); }
-    setDurableState(previous => previous ? withNewerVisits(previous, saved) : previous);
+    setDurableState(previous => previous ? mergeNewerVisitData(previous, saved) : previous);
   }, []);
   useEffect(() => {
-    if (Platform.OS === 'web') return onWebVisitsChanged(STORAGE_KEY, receiveVisits);
-  }, [receiveVisits]);
+    if (Platform.OS === 'web') return onWebVisitDataChanged(STORAGE_KEY, receiveVisitData);
+  }, [receiveVisitData]);
   const persist = useCallback((next: AppState) => {
     queue.current = queue.current.then(async () => {
       try {
         const saved = await writeState(next);
-        if (Platform.OS === 'web') receiveVisits(saved);
-        setDurableState(previous => previous ? withNewerVisits(saved, previous) : saved);
+        if (Platform.OS === 'web') receiveVisitData(saved);
+        setDurableState(previous => previous ? mergeNewerVisitData(saved, previous) : saved);
         setSaveError('');
       }
       catch { setSaveError('기기에 저장하지 못했습니다. 앱을 닫으면 변경 내용이 사라질 수 있습니다.'); }
     });
-  }, [receiveVisits, writeState]);
+  }, [receiveVisitData, writeState]);
   const update = useCallback((change: (s: AppState) => AppState, success?: string) => {
     if (committing.current) { setMessage('저장 중이에요. 잠시 기다려 주세요.'); return false; }
     try {
@@ -77,7 +110,7 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
     const result = queue.current.then(async () => {
       try {
         const saved = await writeState(current.current, change);
-        const next = withNewerVisits(saved, current.current);
+        const next = mergeNewerVisitData(saved, current.current);
         current.current = next;
         setState(next);
         setDurableState(next);
@@ -99,13 +132,13 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
   }, [commit]);
   useEffect(() => {
     let alive = true;
-    AsyncStorage.getItem(STORAGE_KEY).then(raw => {
+    AsyncStorage.getItem(sample ? SAMPLE_MEDICATION_KEY : STORAGE_KEY).then(raw => {
       if (!alive) return;
-      const next = ensureDailyDoses(raw ? validateLoadedState(JSON.parse(raw)) : createInitialState());
+      const next = sample ? restoreSampleMedication(raw) : ensureDailyDoses(raw ? validateLoadedState(JSON.parse(raw)) : createInitialState());
       current.current = next; setState(next); setLoaded(true); persist(next);
-    }).catch(() => { if (alive) setLoadError('기기에 저장된 체험 데이터를 불러오지 못했습니다. 기존 데이터는 그대로 보관되어 있습니다.'); });
+    }).catch(() => { if (alive) setLoadError('이 기기에 저장된 기록을 불러올 수 없어요. 새 기록을 저장하면 기존 기록을 대체해요.'); });
     return () => { alive = false; };
-  }, [persist]);
+  }, [persist, sample]);
   useEffect(() => {
     if (!loaded) return;
     const refresh = () => { const time = new Date(); setNow(time); const next = ensureDailyDoses(current.current, time); if (next !== current.current) update(() => next); };
@@ -114,15 +147,25 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
     return () => { clearInterval(timer); subscription.remove(); };
   }, [loaded, update]);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || sample) return;
     const sequence = ++syncSequence.current;
     syncReminders(state).then(result => { if (syncSequence.current === sequence) setNotificationStatus(result); }).catch(() => { if (syncSequence.current === sequence) setNotificationStatus({ status: 'error', message: '알림 등록을 확인하지 못했습니다. 내 관리에서 다시 확인해 주세요.', count: 0 }); });
-  }, [state, loaded, now]);
-  useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 4200); return () => clearTimeout(timer); }, [message]);
-  if (!loaded) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30, backgroundColor: '#f5f7fb', gap: 18 }}>{loadError ? <><Text style={{ fontSize: 16, lineHeight: 25 }}>{loadError}</Text><Pressable accessibilityRole="button" onPress={() => { replacingUnreadable.current = true; const next = createInitialState(); current.current = next; setState(next); setLoadError(''); setLoaded(true); setSaveError('기존 데이터를 보존한 채 체험 화면을 열었습니다. 변경하면 새 데이터로 저장됩니다.'); }}><Text style={{ color: '#3066e9', fontWeight: '700' }}>새 체험으로 열기</Text></Pressable></> : <><ActivityIndicator color="#3066e9" /><Text>메타케어를 준비하고 있어요</Text></>}</View>;
-  return <Context.Provider value={{ state, update, commit, notify, confirm: setDialog, notificationStatus, setNotificationStatus, now }}>
+  }, [state, loaded, now, sample]);
+  const displayState = useMemo(() => sample ? withSampleMedicationHistory(state, now) : state, [sample, state, now]);
+  if (!loaded) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30, backgroundColor: '#f5f7fb', gap: 18 }}>{loadError ? <><Text style={{ fontSize: 16, lineHeight: 25 }}>{loadError}</Text><Pressable accessibilityRole="button" onPress={() => { replacingUnreadable.current = true; const next = createInitialState(); current.current = next; setState(next); setLoadError(''); setLoaded(true); setSaveError('다음 저장 시 이 기기의 기존 기록이 새 기록으로 대체돼요.'); }}><Text style={{ color: '#3066e9', fontWeight: '700' }}>새 기록으로 시작</Text></Pressable></> : <><ActivityIndicator color="#3066e9" /><Text>메타케어를 준비하고 있어요</Text></>}</View>;
+  return <Context.Provider value={{ sample, state: displayState, update, commit, notify, confirm: setDialog, notificationStatus, setNotificationStatus, now }}>
     {saveError ? <View style={{ backgroundColor: '#fff0d3', padding: 12 }}><Text accessibilityRole="alert">{saveError}</Text></View> : null}
-    <PatientSharingProvider durableState={durableState} onActiveChange={setCaregiverSharing}>{children}</PatientSharingProvider>
+    {sample ? children : <PatientSharingProvider durableState={durableState} onActiveChange={setCaregiverSharing}>{children}</PatientSharingProvider>}
+    <CareFeedback message={message} setMessage={setMessage} dialog={dialog} setDialog={setDialog} />
+  </Context.Provider>;
+}
+
+function CareFeedback({ message, setMessage, dialog, setDialog }: {
+  message: string; setMessage: (value: string) => void; dialog: Dialog | null; setDialog: (value: Dialog | null) => void;
+}) {
+  const reducedMotion = useReducedMotion();
+  useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 4200); return () => clearTimeout(timer); }, [message, setMessage]);
+  return <>
     {message ? <FadeIn motionKey={message} style={{ position: 'absolute', bottom: 98, left: 20, right: 20, alignSelf: 'center', zIndex: 20, maxWidth: 650 }}>
       <Pressable accessibilityRole="alert" onPress={() => setMessage('')} style={{ backgroundColor: '#172b4d', borderRadius: 16, padding: 17 }}>
         <Text style={{ color: 'white', lineHeight: 23, fontSize: 14 }}>{message}</Text>
@@ -144,5 +187,5 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
         </FadeIn>
       </View>
     </Modal>
-  </Context.Provider>;
+  </>;
 }

@@ -2,7 +2,7 @@
 
 Vercel에는 메타케어의 두 역할이 사용하는 `/v1` API를 배포합니다. 각 휴대폰은 같은 앱을 설치하고 고정 HTTPS 주소로 같은 서버에 접속합니다. 테스트 환경에는 시연 자료만 사용하세요.
 
-통합 앱의 EAS `preview` 프로필은 `https://metacare-sharing-test.vercel.app`을 사용합니다. [테스트 서버 상태 확인](https://metacare-sharing-test.vercel.app/v1/health). `production` 빌드의 주소는 배포 환경에서 별도로 설정합니다.
+통합 앱의 EAS `preview` 프로필은 `https://metacare-sharing-test.vercel.app`을 사용합니다. [테스트 서버 상태 확인](https://metacare-sharing-test.vercel.app/v1/health). `production` 프로필도 같은 HTTPS 서버로 연결합니다.
 
 ## 배포
 
@@ -15,7 +15,7 @@ Vercel에는 메타케어의 두 역할이 사용하는 `/v1` API를 배포합�
 
 ## 웹 미리보기 배포
 
-저장소 루트에서 `npm run export:public-web`을 실행합니다. 같은 앱을 한 번 빌드해서 기존 환자·보호자 주소의 배포 폴더에 복제합니다. 주소를 강제로 돌리지 않으므로 각 주소의 기존 세션과 웹푸시 구독이 유지됩니다. 기본 공유 API는 `https://metacare-sharing-test.vercel.app`이며, 다른 테스트 서버는 빌드 전에 `EXPO_PUBLIC_CARE_URL`로 지정합니다.
+저장소 루트에서 `npm run export:public-web`을 실행합니다. 같은 앱을 한 번 빌드해서 기존 환자·보호자 주소의 배포 폴더에 복제합니다. 주소를 강제로 돌리지 않으므로 각 주소의 기존 환자·보호자 연결이 유지됩니다. 기본 공유 API는 `https://metacare-sharing-test.vercel.app`이며, 다른 테스트 서버는 빌드 전에 `EXPO_PUBLIC_CARE_URL`로 지정합니다.
 
 처음 배포하는 PC에서는 각 출력 폴더를 해당 프런트엔드 프로젝트에 `vercel link`로 연결합니다. 이후에는 다음 명령으로 두 주소에 배포합니다.
 
@@ -29,13 +29,3 @@ vercel deploy --prebuilt --prod --cwd .preview/public-web/caregiver
 연결 코드, 기기별 접근 권한과 복약 기록은 PostgreSQL에 보관합니다. 사진도 같은 비공개 데이터베이스에 저장하며, 보호자에게 사진을 공개 URL로 제공하지 않습니다. 최대 5 MiB 사진은 인증된 요청 최대 두 번으로 전송합니다. 환자와의 연결 해제 또는 사진 참조 삭제 시 완성된 사진과 전송 중인 조각을 정리합니다.
 
 로컬 회귀 검증에는 별도의 빈 테스트 PostgreSQL을 사용합니다. `TEST_DATABASE_URL`을 그 데이터베이스로 지정하고 `npm test`를 실행하면 클라우드용 핸들러와 실제 PostgreSQL을 함께 검사합니다. 운영 데이터베이스를 테스트에 사용하지 마세요.
-
-## 보호자의 미기록 알림
-
-보호자 앱에서 알림을 허용하고 15분·30분·1시간·2시간 중 하나를 선택합니다. 서버는 환자의 복약 시간대에 맞춰 다음 회차를 Vercel Queues에 예약합니다. 기한에 서버에 도착한 기록, 현재 연결, 알림 설정을 다시 확인합니다. 알림 내용은 실제 미복용이 아니라 **서버에 기록이 없음**을 의미합니다. 같은 회차는 발송 대상으로 한 번만 처리합니다. 전송 결과가 불분명하면 중복 발송하지 않습니다.
-
-안드로이드 설치본에는 보호자 EAS 프로젝트의 FCM V1 발송 자격 증명과 `com.metacare.caregiver`에 맞는 Firebase 앱 설정이 필요합니다. EAS의 빌드 환경에서 `CAREGIVER_GOOGLE_SERVICES_FILE`을 **파일 환경 변수**로 지정하세요. FCM 서비스 계정 비공개 키는 소스나 앱 번들에 넣지 말고 EAS 자격 증명에 등록하세요. [Expo FCM 설정](https://docs.expo.dev/push-notifications/fcm-credentials/). Expo Push Security를 켠 경우에만 서버 환경에 `EXPO_ACCESS_TOKEN`도 설정합니다. iOS 설치본에는 해당 앱의 APNs 자격 증명이 필요합니다.
-
-웹 보호자 앱은 같은 예약 큐를 사용하며, Web Push로 브라우저에 직접 전달합니다. API 프로젝트의 Production 환경에 VAPID P-256 키 쌍을 `WEB_PUSH_VAPID_PUBLIC_KEY`와 `WEB_PUSH_VAPID_PRIVATE_KEY`로 설정합니다. 브라우저는 등록에 필요한 공개키만 받습니다. 비공개 키나 구독 주소는 저장소·프런트엔드 환경·로그에 넣지 마세요. 배포마다 새 키를 만들면 기존 구독이 끊깁니다.
-
-웹에서는 알림을 허용한 후 보호자 탭을 모두 닫고, 설치 앱에서는 앱을 최근 목록에서 닫은 뒤 기한 전 기록·미기록 회차를 각각 확인하세요. Android Expo Go는 원격 푸시 검증을 지원하지 않습니다. 안드로이드 시스템 설정의 ‘강제 종료’는 다시 앱을 열 때까지 푸시 수신을 막습니다.

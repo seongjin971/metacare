@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { Card, Icon, s } from '../../src/ui';
+import { Card, s } from '../../src/ui';
 import { useRoleActions } from '../../src/role-actions';
 import { CareButton, CarePage, colors } from './components';
 import { useCaregiver } from './store';
@@ -21,13 +21,6 @@ export function ConnectScreen() {
   </CarePage>;
   return <CarePage title="보호자">
     <Text accessibilityRole="header" style={[s.title, { fontSize: 24, lineHeight: 34 }]}>환자 연결</Text>
-    <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-      <Icon name="person-circle-outline" size={44} color={colors.teal} />
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text style={s.section}>환자 프로필</Text>
-        <Text style={s.micro}>연결하면 여기에 표시돼요.</Text>
-      </View>
-    </Card>
     <Card style={{ gap: 18 }}>
       <View><Text style={s.label}>연결 코드</Text><TextInput accessibilityLabel="8자리 연결 코드" value={code}
         onChangeText={value => { setCode(value.replace(/\D/g, '').slice(0, 8)); clearError(); }}
@@ -39,7 +32,7 @@ export function ConnectScreen() {
       <CareButton title={busy ? '연결하는 중…' : '환자와 연결하기'} disabled={busy || code.length !== 8} onPress={() => void connect(code)} />
     </Card>
     <View style={{ gap: 12 }}><Text style={s.micro}>연결하면 환자가 공유한 복약 일정과 사진을 확인할 수 있어요. 환자 또는 보호자가 언제든 연결을 해제할 수 있어요.</Text>
-      <CareButton title="예시로 살펴보기" secondary disabled={busy} onPress={startDemo} />
+      <CareButton title="연결 없이 둘러보기" secondary disabled={busy} onPress={startDemo} />
       {role && <CareButton title="역할 변경" secondary disabled={busy} onPress={role.changeRole} />}
     </View>
   </CarePage>;

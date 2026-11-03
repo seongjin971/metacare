@@ -13,6 +13,7 @@ import { formatReminderOffset, ReminderKind } from './reminder-settings';
 import { ReminderTimePicker } from './reminder-time-picker';
 import { medicationScheduleLabel } from './medication-schedule';
 import { MedicationSchedulePicker } from './medication-schedule-picker';
+import { formatClockTime } from './clock-time';
 import { DoseCamera } from './dose-camera';
 import { isPhotoAnalyzerAvailable, type VerifiedDoseCapture } from './verify-dose-photo';
 import { DosePhotoButton } from './dose-photo-button';
@@ -52,6 +53,8 @@ function DoseRow({ dose, canCapture }: { dose: Dose; canCapture: boolean }) {
   const recordedTime = dose.takenAt
     ? new Date(dose.takenAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
     : '';
+  const recordLabel = dose.photo?.verification ? '사진 인증' : dose.photo ? '사진 기록' : '자가 기록';
+  const recordDetail = `${recordLabel} ${recordedTime}`.trimEnd();
   const undo = () => confirm({
     title: '복약 기록을 취소할까요?',
     body: `${dose.label} 기록을 미기록으로 바꿉니다.${dose.photo ? ' 이 기록에 첨부한 사진도 삭제돼요.' : ''}`,
@@ -82,7 +85,7 @@ function DoseRow({ dose, canCapture }: { dose: Dose; canCapture: boolean }) {
     <View style={styles.doseRow}>
       <View style={styles.itemContent}>
         <Text style={styles.itemTitle}>{dose.label}</Text>
-        <Text style={s.muted}>{dose.time}{taken && <Text style={{ color: C.green }}> · {dose.photo?.verification ? '사진 인증' : dose.photo ? '사진 기록' : '자가 기록'} {recordedTime}</Text>}</Text>
+        <Text style={s.muted}>{dose.time}{taken && <Text style={{ color: C.green }}> · {recordDetail}</Text>}</Text>
       </View>
       {!taken && canCapture ? (
         <Pressable
@@ -125,7 +128,7 @@ function DoseList({ doses }: { doses: Dose[] }) {
 }
 
 export function MedicationScreen() {
-  const { state, now } = useCare();
+  const { state, now, sample } = useCare();
   const today = localDateKey(now);
   const [date, setDate] = useState(today);
   const [month, setMonth] = useState(() => startOfMonth(today));
@@ -168,7 +171,7 @@ export function MedicationScreen() {
             {doses.length > 0 && <Text style={[s.muted, done === doses.length && { color: C.green }]}>{done}/{doses.length}</Text>}
           </View>
           {doses.length ? <DoseList doses={doses} /> : <Text style={s.muted}>복약 일정이 없어요.</Text>}
-        </Card> : <MedicationHistoryCard key={date} doses={doses} emptyMessage={date > today ? '아직 복약 기록이 없어요.' : '복약 기록이 없어요.'} />}
+        </Card> : <MedicationHistoryCard key={date} doses={doses} sample={sample} emptyMessage={date > today ? '아직 복약 기록이 없어요.' : '복약 기록이 없어요.'} />}
       </View>
     </Page>
   );
@@ -208,12 +211,44 @@ function ReminderRow({ title, values, enabled, busy, onEdit, onToggle }: {
 }
 
 export function SettingsScreen() {
-  const roleActions = useRoleActions();
-  const { state, update, confirm, notify, notificationStatus, setNotificationStatus, now } = useCare();
-  const [busy, setBusy] = useState(false);
-  const [editingReminder, setEditingReminder] = useState<ReminderKind | null>(null);
+  const { state, update, now, sample } = useCare();
   const [editingMedication, setEditingMedication] = useState(false);
   const hasRecordedToday = state.doses.some(dose => dose.date === localDateKey(now) && dose.status === 'taken');
+  return (
+    <Page title="내 관리">
+      <View style={styles.stack}>
+        <Card>
+          <Pressable accessibilityRole="button" accessibilityLabel="복약 설정" onPress={() => setEditingMedication(true)} style={[s.row, { minHeight: 56, gap: 16 }]}>
+            <View style={styles.itemContent}>
+              <Text style={s.section}>복약 설정</Text>
+              <Text style={s.body}>{medicationScheduleLabel(state.medicationSchedule)}</Text>
+              <Text style={s.muted}>{state.medicationSchedule.times.map(formatClockTime).join(' · ')}</Text>
+            </View>
+            <Icon name="chevron-forward" size={18} color={C.muted} />
+          </Pressable>
+        </Card>
+        <HospitalContactCard editable />
+        {!sample && <SharingAndReminderSettings />}
+      </View>
+      {editingMedication && <MedicationSchedulePicker
+        value={state.medicationSchedule}
+        appliesTomorrow={hasRecordedToday}
+        onClose={() => setEditingMedication(false)}
+        onSave={schedule => {
+          const time = sample ? now : new Date();
+          const appliesTomorrow = state.doses.some(dose => dose.date === localDateKey(time) && dose.status === 'taken');
+          if (update(current => setMedicationSchedule(current, schedule, time), appliesTomorrow ? '저장했어요. 내일부터 적용됩니다.' : '복약 일정을 저장했어요.')) setEditingMedication(false);
+        }}
+      />}
+    </Page>
+  );
+}
+
+function SharingAndReminderSettings() {
+  const roleActions = useRoleActions();
+  const { state, update, confirm, notify, notificationStatus, setNotificationStatus } = useCare();
+  const [busy, setBusy] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<ReminderKind | null>(null);
   const isWeb = Platform.OS === 'web';
   const notificationProblem = notificationStatus.status === 'error' || notificationStatus.status === 'denied';
 
@@ -259,60 +294,37 @@ export function SettingsScreen() {
   };
 
   return (
-    <Page title="내 관리">
-      <View style={styles.stack}>
-        <Card>
-          <Pressable accessibilityRole="button" accessibilityLabel="복약 설정" onPress={() => setEditingMedication(true)} style={[s.row, { minHeight: 56, gap: 16 }]}>
-            <View style={styles.itemContent}>
-              <Text style={s.section}>복약 설정</Text>
-              <Text style={s.body}>{medicationScheduleLabel(state.medicationSchedule)}</Text>
-              <Text style={s.muted}>{state.medicationSchedule.times.join(' · ')}</Text>
-            </View>
-            <Icon name="chevron-forward" size={18} color={C.muted} />
-          </Pressable>
-        </Card>
-        <HospitalContactCard editable />
-        <CaregiverLinkCard confirm={confirm} />
-        <Card>
-          <Text style={s.section}>병원 공유 설정</Text>
-          <View>
-            <SettingRow title="병원" value={state.sharing.hospital} disabled={false} onChange={toggleHospitalShare} accessibilityLabel="병원 복약 기록 공유" />
-          </View>
-          <Text style={s.muted}>복약 일정·복용 여부·기록 시간의 공유 의향을 저장합니다. 실제 병원 계정 연결은 아직 지원하지 않아요.</Text>
-        </Card>
-        <Card>
-          <Text style={s.section}>알림</Text>
-          <View>
-            <ReminderRow title="진료 일정" values={state.reminders.appointmentMinutesBefore} enabled={state.reminders.appointment} busy={busy} onEdit={() => setEditingReminder('appointment')} onToggle={value => void toggleReminder('appointment', value)} />
-            <View style={s.divider} />
-            <ReminderRow title="복약" values={state.reminders.medicationMinutesBefore} enabled={state.reminders.medication} busy={busy} onEdit={() => setEditingReminder('medication')} onToggle={value => void toggleReminder('medication', value)} />
-          </View>
-          {!isWeb && notificationProblem && <Text accessibilityRole="alert" style={[s.muted, { color: '#a66b1d' }]}>{notificationStatus.message}</Text>}
-        </Card>
-        {!isWeb && (
-          <Disclosure title="알림 점검">
-            <Text style={s.muted}>{notificationStatus.message}</Text>
-            <Button title={busy ? '확인 중…' : '10초 뒤 테스트 알림'} small secondary disabled={busy} onPress={() => void testReminder()} />
-            <TextAction label="알림 상태 다시 확인" onPress={async () => {
-              const result = await syncReminders(state);
-              setNotificationStatus(result);
-              notify(result.message);
-            }} />
-            <Text style={s.muted}>기기 설정에 따라 알림이 지연될 수 있습니다.</Text>
-          </Disclosure>
-        )}
-        {roleActions && <TextAction label="역할 변경" onPress={roleActions.changeRole} />}
-      </View>
-      {editingMedication && <MedicationSchedulePicker
-        value={state.medicationSchedule}
-        appliesTomorrow={hasRecordedToday}
-        onClose={() => setEditingMedication(false)}
-        onSave={schedule => {
-          const time = new Date();
-          const appliesTomorrow = state.doses.some(dose => dose.date === localDateKey(time) && dose.status === 'taken');
-          if (update(current => setMedicationSchedule(current, schedule, time), appliesTomorrow ? '저장했어요. 내일부터 적용됩니다.' : '복약 일정을 저장했어요.')) setEditingMedication(false);
-        }}
-      />}
+    <>
+      <CaregiverLinkCard confirm={confirm} />
+      <Card>
+        <Text style={s.section}>병원 공유 설정</Text>
+        <View>
+          <SettingRow title="병원" value={state.sharing.hospital} disabled={false} onChange={toggleHospitalShare} accessibilityLabel="병원 복약 기록 공유" />
+        </View>
+        <Text style={s.muted}>복약 일정·복용 여부·기록 시간의 공유 의향을 저장합니다. 실제 병원 계정 연결은 아직 지원하지 않아요.</Text>
+      </Card>
+      <Card>
+        <Text style={s.section}>알림</Text>
+        <View>
+          <ReminderRow title="진료 일정" values={state.reminders.appointmentMinutesBefore} enabled={state.reminders.appointment} busy={busy} onEdit={() => setEditingReminder('appointment')} onToggle={value => void toggleReminder('appointment', value)} />
+          <View style={s.divider} />
+          <ReminderRow title="복약" values={state.reminders.medicationMinutesBefore} enabled={state.reminders.medication} busy={busy} onEdit={() => setEditingReminder('medication')} onToggle={value => void toggleReminder('medication', value)} />
+        </View>
+        {!isWeb && notificationProblem && <Text accessibilityRole="alert" style={[s.muted, { color: '#a66b1d' }]}>{notificationStatus.message}</Text>}
+      </Card>
+      {!isWeb && (
+        <Disclosure title="알림 점검">
+          <Text style={s.muted}>{notificationStatus.message}</Text>
+          <Button title={busy ? '확인 중…' : '10초 뒤 알림 받기'} small secondary disabled={busy} onPress={() => void testReminder()} />
+          <TextAction label="알림 상태 다시 확인" onPress={async () => {
+            const result = await syncReminders(state);
+            setNotificationStatus(result);
+            notify(result.message);
+          }} />
+          <Text style={s.muted}>기기 설정에 따라 알림이 지연될 수 있습니다.</Text>
+        </Disclosure>
+      )}
+      {roleActions && <TextAction label="역할 변경" onPress={roleActions.changeRole} />}
       {editingReminder !== null && <ReminderTimePicker
         kind={editingReminder}
         values={editingReminder === 'appointment' ? state.reminders.appointmentMinutesBefore : state.reminders.medicationMinutesBefore}
@@ -321,7 +333,7 @@ export function SettingsScreen() {
           if (update(current => setReminderOffsets(current, editingReminder, minutes), '알림 시간을 저장했어요.')) setEditingReminder(null);
         }}
       />}
-    </Page>
+    </>
   );
 }
 

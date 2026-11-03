@@ -15,7 +15,7 @@ import {
   type NotificationPermissionsStatus,
 } from 'expo-notifications';
 import type { AppState } from './domain';
-import { plannedReminders, REMINDER_PREFIX } from './reminder-plan';
+import { isPatientReminder, plannedReminders, REMINDER_PREFIX, TEST_REMINDER_ID } from './reminder-plan';
 
 export type NotificationSyncResult = {
   status: 'ready' | 'denied' | 'unsupported' | 'error' | 'disabled';
@@ -24,12 +24,7 @@ export type NotificationSyncResult = {
 };
 
 const CHANNEL_ID = 'metacare-private-reminders';
-const TEST_ID = 'metacare-test';
 let queue: Promise<unknown> = Promise.resolve();
-
-function isPatientReminder(id: string) {
-  return id.startsWith(REMINDER_PREFIX) || id === TEST_ID;
-}
 
 // Wait for in-flight reconciliation before leaving the patient workspace. Preferences
 // stay on the device and are reconciled by CareProvider on the next patient launch.
@@ -185,10 +180,10 @@ export function scheduleTestReminder(): Promise<NotificationSyncResult> {
     await ensureChannel();
     if (!isAllowed(await getPermissionsAsync())) return deniedResult();
     await scheduleNotificationAsync({
-      identifier: TEST_ID,
+      identifier: TEST_REMINDER_ID,
       content: {
         title: '메타케어',
-        body: '기기 알림 테스트예요. 알림이 잘 도착했어요.',
+        body: '이 기기로 메타케어 알림을 받을 수 있어요.',
         sound: 'default',
         data: { url: '/settings' },
       },
@@ -198,6 +193,6 @@ export function scheduleTestReminder(): Promise<NotificationSyncResult> {
         channelId: CHANNEL_ID,
       },
     });
-    return { status: 'ready', message: '10초 뒤 테스트 알림이 예약됐어요.', count: 1 };
+    return { status: 'ready', message: '10초 뒤에 울리도록 알림을 설정했어요.', count: 1 };
   });
 }

@@ -4,8 +4,6 @@ import type { SharedVisit } from '../shared/care-types.ts';
 import { hash, photoIds, routeCare, tokenDigest, type CareStore, type Patient, type Role } from './care-core.ts';
 import { HttpError } from './care-errors.ts';
 import { pruneVercelPhotos, routeVercelPhoto } from './vercel-photos.ts';
-import { parseOverdueSettings, webPushPublicConfig, type EnqueueOverdue } from './overdue.ts';
-import { getOverdueSettings, reconcileOverdue, setOverdueSettings } from './vercel-overdue.ts';
 
 const snapshotLimit = 256 * 1024;
 const photoPartLimit = 4_200_000; // 3 MiB base64 plus JSON, below Vercel's 4.5 MB request limit.
@@ -18,7 +16,7 @@ function isUpcomingClinicVisit(visit: SharedVisit, now = new Date()): boolean {
   return Date.parse(visit.date + 'T' + visit.time + ':00+09:00') > now.getTime();
 }
 
-function transactionStore(client: PoolClient, now: () => number, enqueue: EnqueueOverdue): CareStore {
+function transactionStore(client: PoolClient): CareStore {
   async function find(column: string, value: string) {
     // column is a fixed expression selected below, never taken from the request.
     const result = await client.query<Omit<Patient, 'photos'>>(
@@ -43,12 +41,6 @@ function transactionStore(client: PoolClient, now: () => number, enqueue: Enqueu
       await client.query('UPDATE metacare_patients SET snapshot=$2, visit_update=$3, invite=$4, caregiver=$5, sharing_revoked=$6 WHERE id=$1',
         [patient.id, patient.snapshot, patient.visitUpdate ?? null, patient.invite, patient.caregiver, patient.sharingRevoked ?? false]);
       await pruneVercelPhotos(client, patient.id, patient.caregiver ? [...photoIds(patient)] : []);
-      await reconcileOverdue(client, patient, now(), enqueue);
-    },
-    async alerts(patient, method, body, at) {
-      const value = method === 'GET' ? await getOverdueSettings(client, patient)
-        : await setOverdueSettings(client, patient, parseOverdueSettings(body), at, enqueue);
-      return { status: 200, body: value };
     },
     photoParts: (...args) => routeVercelPhoto(client, ...args),
   };
@@ -133,7 +125,7 @@ async function rateLimit(pool: Pool, request: Request, now: number) {
   await countAttempt(pool, 'all', now, 3000);
 }
 
-type Options = { now?: () => number; allowedOrigins?: string[]; enqueue?: EnqueueOverdue };
+type Options = { now?: () => number; allowedOrigins?: string[] };
 
 function isDeployedWebOrigin(value: string): boolean {
   try {
@@ -147,7 +139,6 @@ function isDeployedWebOrigin(value: string): boolean {
 
 export function createVercelCareHandler(pool: Pool, options: Options = {}) {
   const now = options.now ?? Date.now;
-  const enqueue = options.enqueue ?? (async () => { throw new Error('Overdue queue not configured.'); });
   const configuredOrigins = [process.env.CARE_ALLOWED_ORIGINS, process.env.CARE_WEB_PREVIEW_ORIGINS]
     .flatMap(value => value?.split(',') ?? []).map(value => value.trim()).filter(Boolean);
   const origins = new Set((options.allowedOrigins ?? configuredOrigins).filter(isDeployedWebOrigin));
@@ -164,9 +155,8 @@ export function createVercelCareHandler(pool: Pool, options: Options = {}) {
       const path = endpoint(request);
       if (request.method !== 'PUT' && request.method !== 'POST') await requireEmptyBody(request);
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-      if (path === '/v1/web-push/key' && request.method === 'GET') return Response.json(webPushPublicConfig(), { headers });
       if (path === '/v1/health' && request.method === 'GET') {
-        await pool.query('SELECT 1 FROM metacare_patients, metacare_rate_limits, metacare_photos, metacare_photo_uploads, metacare_overdue_settings, metacare_overdue_deliveries LIMIT 0');
+        await pool.query('SELECT 1 FROM metacare_patients, metacare_rate_limits, metacare_photos, metacare_photo_uploads LIMIT 0');
         return Response.json({ status: 'ok' }, { headers });
       }
       if (request.method === 'POST' && (path === '/v1/patients' || path === '/v1/caregivers/connect')) {
@@ -186,7 +176,7 @@ export function createVercelCareHandler(pool: Pool, options: Options = {}) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const result = await routeCare(transactionStore(client, now, enqueue), request.method, path, authorization, body, now, tenMinutes, isUpcomingClinicVisit);
+        const result = await routeCare(transactionStore(client), request.method, path, authorization, body, now, tenMinutes, isUpcomingClinicVisit);
         await client.query('COMMIT');
         return Response.json(result.body, { status: result.status, headers });
       } catch (error) {

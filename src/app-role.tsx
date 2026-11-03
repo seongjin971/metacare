@@ -5,7 +5,6 @@ import { RoleActions, type AppRole } from './role-actions';
 import { RolePicker } from './role-picker';
 import { setForegroundNotificationRole } from './foreground-notifications';
 import { suspendPatientReminders } from './notifications';
-import { suspendOwnCaregiverAlerts } from '../caregiver/src/suspend-alerts';
 import { Button, C, s } from './ui';
 
 const ROLE_KEY = 'metacare.role.v1';
@@ -47,8 +46,9 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     try {
       // When upgrading, the previous apps had no role preference. Retain their records
       // and pairing, but do not leave reminders running for a role the device is leaving.
-      if (next === 'patient') await suspendOwnCaregiverAlerts();
-      else if (role === 'patient' || await AsyncStorage.getItem('metacare.demo.v1') !== null) await suspendPatientReminders();
+      if (next === 'caregiver' && (role === 'patient' || await AsyncStorage.getItem('metacare.demo.v1') !== null)) {
+        await suspendPatientReminders();
+      }
       await AsyncStorage.setItem(ROLE_KEY, next);
       setForegroundNotificationRole(next);
       setRole(next); setSwitching(false);

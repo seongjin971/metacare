@@ -17,7 +17,7 @@ const buildOutput = {
   ],
 };
 
-// Existing links must retain their origin (stored pairings and Web Push subscriptions).
+// Keep each origin so existing device pairings continue to work.
 // Both hosts serve exactly the same application and use the same router.
 const [primary] = stages;
 const primaryStatic = path.join(primary, '.vercel', 'output', 'static');

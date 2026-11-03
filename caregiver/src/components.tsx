@@ -19,9 +19,9 @@ export function CarePage({ title, children }: { title: string; children: React.R
   const { mode, exitDemo } = useCaregiver();
   return <Page title={title} keyboardDismissMode="on-drag">
     <View style={{ maxWidth: 680, width: '100%', alignSelf: 'center', gap: 20 }}>
-      {mode === 'demo' && <View style={styles.demoBanner}>
-        <View style={{ flex: 1 }}><Text style={styles.demoText}>예시 데이터 · 연결되지 않음</Text><Text style={s.micro}>오늘 오후 2시 20분을 가정한 예시예요.</Text></View>
-        <Pressable accessibilityRole="button" onPress={exitDemo} style={styles.textButton}><Text style={{ color: colors.teal, fontWeight: '600', fontSize: 13 }}>나가기</Text></Pressable>
+      {mode === 'demo' && <View style={styles.connectionRow}>
+        <Text style={[s.micro, { flex: 1 }]}>환자 미연결</Text>
+        <Pressable accessibilityRole="button" onPress={exitDemo} style={styles.textButton}><Text style={{ color: colors.teal, fontWeight: '600', fontSize: 13 }}>환자 연결하기</Text></Pressable>
       </View>}
       {children}
     </View>
@@ -85,7 +85,7 @@ export function PhotoViewer({ dose, onClose }: { dose: SharedDose | null; onClos
   useEffect(() => {
     if (dose && !current) onClose();
   }, [dose, current, onClose]);
-  if (!current?.photo || mode === 'disconnected') return null;
+  if (!current?.photo || mode !== 'connected') return null;
   return <SharedPhotoViewer key={`${mode}:${current.photo.id}`} dose={current} onClose={onClose} />;
 }
 
@@ -115,11 +115,7 @@ function SharedPhotoViewer({ dose, onClose }: { dose: SharedDose; onClose: () =>
       <View accessibilityViewIsModal style={styles.modalCard}>
         <View style={s.row}><Text accessibilityRole="header" style={s.section}>{dose?.label} · 공유 사진</Text><Pressable accessibilityRole="button" accessibilityLabel="사진 닫기" onPress={onClose} style={styles.close}><Icon name="close" color={colors.ink} size={23} /></Pressable></View>
         <Text style={s.micro}>촬영 {shortTimestamp(dose?.photo?.capturedAt)}</Text>
-        {mode === 'demo' ? <View style={styles.examplePhoto}>
-          <Icon name="image-outline" size={48} color={colors.teal} />
-          <Text style={[s.section, { marginTop: 16 }]}>공유 사진 화면 예시</Text>
-          <Text style={[s.body, { textAlign: 'center', marginTop: 8 }]}>환자가 공유한 사진이 이곳에 표시돼요.{`\n`}예시에는 실제 환자 사진이 없어요.</Text>
-        </View> : loading ? <View style={styles.photoArea}><ActivityIndicator size="large" color={colors.teal} /><Text style={s.body}>사진을 불러오는 중이에요.</Text></View>
+        {loading ? <View style={styles.photoArea}><ActivityIndicator size="large" color={colors.teal} /><Text style={s.body}>사진을 불러오는 중이에요.</Text></View>
           : uri ? <Image source={{ uri }} resizeMode="contain" accessibilityLabel={`${dose?.label} 기록에 첨부된 사진`} style={styles.photoArea} />
             : <View style={[styles.photoArea, { padding: 20 }]}><Text accessibilityRole="alert" style={s.body}>{error}</Text><CareButton secondary title="다시 불러오기" onPress={() => { setLoading(true); setError(null); setUri(null); setAttempt(value => value + 1); }} /></View>}
         <Text style={s.micro}>사진과 기록만으로 실제 복용 여부를 확인할 수는 없어요.</Text>
@@ -131,8 +127,7 @@ function SharedPhotoViewer({ dose, onClose }: { dose: SharedDose; onClose: () =>
 export const styles = StyleSheet.create({
   button: { minHeight: 48, borderRadius: 10, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   textButton: { minHeight: 44, paddingHorizontal: 8, justifyContent: 'center' },
-  demoBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 12, paddingRight: 4, paddingVertical: 4, backgroundColor: colors.soft, borderRadius: 8 },
-  demoText: { fontSize: 12, fontWeight: '600', color: colors.teal, lineHeight: 19 },
+  connectionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   refresh: { minHeight: 44, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   doseRow: { paddingVertical: 16, minHeight: 86, flexDirection: 'row', alignItems: 'center', gap: 14 },
   doseTime: { color: colors.ink, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'], width: 48 },
@@ -142,5 +137,4 @@ export const styles = StyleSheet.create({
   modalCard: { width: '100%', maxWidth: 560, backgroundColor: 'white', padding: 20, borderRadius: 16, gap: 12 },
   close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   photoArea: { width: '100%', height: 280, alignItems: 'center', justifyContent: 'center', gap: 16, backgroundColor: '#F2F5F6', borderRadius: 10 },
-  examplePhoto: { minHeight: 260, padding: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.soft, borderRadius: 10 },
 });

@@ -9,6 +9,9 @@ import { useCare } from './store';
 import { Button, C, Card, Icon, s, useInlineEditorBack } from './ui';
 import { MotionPressable as Pressable } from './motion';
 import type { BookingScrollAnchor } from './booking-scroll';
+import { formatClockTime } from './clock-time';
+import { suggestedVisitTime } from './visit-time';
+import { TimePicker } from './time-picker';
 
 function VisitList({ title, visits, onDelete }: { title: string; visits: Visit[]; onDelete: (item: Visit) => void }) {
   if (!visits.length) return null;
@@ -16,10 +19,10 @@ function VisitList({ title, visits, onDelete }: { title: string; visits: Visit[]
     <Text accessibilityRole="header" style={s.section}>{title}</Text>
     {visits.map((item, index) => <View key={item.id} style={[styles.visit, index > 0 && styles.divider]}>
       <View style={{ flex: 1, gap: 3 }}>
-        <Text style={styles.visitTime}>{formatDate(item.date)} {item.time}</Text>
+        <Text style={styles.visitTime}>{formatDate(item.date)} {formatClockTime(item.time)}</Text>
         <Text style={s.body}>{item.hospitalName}</Text>
       </View>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${item.hospitalName} ${formatDate(item.date)} ${item.time} 일정 삭제`}
+      <Pressable accessibilityRole="button" accessibilityLabel={`${item.hospitalName} ${formatDate(item.date)} ${formatClockTime(item.time)} 일정 삭제`}
         onPress={() => onDelete(item)} style={styles.textButton}><Text style={s.muted}>일정 삭제</Text></Pressable>
     </View>)}
   </Card>;
@@ -35,13 +38,10 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
   const [adding, setAdding] = useState(false);
   const [pickingDate, setPickingDate] = useState(false);
   const [hospitalName, setHospitalName] = useState('');
-  const [hour, setHour] = useState('');
-  const [minute, setMinute] = useState('');
+  const [time, setTime] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
   const originDate = useRef(date);
-  const hourField = useRef<React.ComponentRef<typeof TextInput>>(null);
-  const minuteField = useRef<React.ComponentRef<typeof TextInput>>(null);
 
   useFocusEffect(useCallback(() => {
     if (linkedDate) {
@@ -79,23 +79,20 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
   const startAdding = () => {
     originDate.current = date;
     setHospitalName(state.hospitalContact.name);
-    setHour('');
-    setMinute('');
+    setTime(null);
     setPickingDate(false);
     setAdding(true);
   };
-  const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
   let timeError = '';
   if (date < today) timeError = '오늘 이후의 진료일을 선택해 주세요.';
-  else if (Number(hour) > 23 || Number(minute) > 59) timeError = '시는 0~23, 분은 0~59로 입력해 주세요.';
-  else if (hour && minute && new Date(`${date}T${time}:00`).getTime() <= now.getTime()) timeError = '이미 지난 시간이에요. 진료일이나 시간을 바꿔 주세요.';
-  const canSave = !!(hospitalName.trim() && hour && minute) && !timeError && !pickingDate;
+  else if (time && new Date(`${date}T${time}:00`).getTime() <= now.getTime()) timeError = '이미 지난 시간이에요. 진료일이나 시간을 바꿔 주세요.';
+  const canSave = !!hospitalName.trim() && time !== null && !timeError && !pickingDate;
   const save = async () => {
     if (saving.current || !canSave) return;
     saving.current = true;
     setBusy(true);
     try {
-      if (await commit(current => addVisit(current, { date, time, hospitalName }), `${formatDate(date)} ${time} 진료를 저장했어요.`)) {
+      if (await commit(current => addVisit(current, { date, time, hospitalName }), `${formatDate(date)} ${formatClockTime(time)} 진료를 저장했어요.`)) {
         Keyboard.dismiss();
         setMonth(startOfMonth(date));
         setAdding(false);
@@ -105,7 +102,7 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
   const askDelete = (item: Visit) => {
     confirm({
       title: '진료 일정을 삭제할까요?',
-      body: `${item.hospitalName} · ${formatDate(item.date)} ${item.time}\n앱의 일정만 삭제돼요. 병원 예약은 유지됩니다.`,
+      body: `${item.hospitalName} · ${formatDate(item.date)} ${formatClockTime(item.time)}\n앱의 일정만 삭제돼요. 병원 예약은 유지됩니다.`,
       label: '일정 삭제',
       cancelLabel: '일정 유지',
       destructive: true,
@@ -142,20 +139,12 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
     <View>
       <Text style={s.label}>병원명</Text>
       <TextInput accessibilityLabel="진료 병원명" style={s.input} maxLength={80} value={hospitalName} editable={!busy}
-        returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => hourField.current?.focus()}
+        returnKeyType="done"
         onChangeText={setHospitalName} placeholder="병원 이름" placeholderTextColor={C.muted} />
     </View>
     <View>
-      <Text style={s.label}>진료 시간 (24시간제)</Text>
-      <View style={s.inline}>
-        <TextInput ref={hourField} accessibilityLabel="진료 시" style={[s.input, styles.timeInput]} keyboardType="number-pad" maxLength={2} selectTextOnFocus
-          returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => minuteField.current?.focus()}
-          value={hour} editable={!busy} onChangeText={value => setHour(value.replace(/\D/g, ''))} placeholder="시" placeholderTextColor={C.muted} />
-        <Text style={s.section}>:</Text>
-        <TextInput ref={minuteField} accessibilityLabel="진료 분" style={[s.input, styles.timeInput]} keyboardType="number-pad" maxLength={2} selectTextOnFocus
-          returnKeyType="done"
-          value={minute} editable={!busy} onChangeText={value => setMinute(value.replace(/\D/g, ''))} placeholder="분" placeholderTextColor={C.muted} />
-      </View>
+      <Text style={s.label}>진료 시간</Text>
+      <TimePicker label="진료 시간 선택" value={time} initialTime={suggestedVisitTime(date === today, now)} onChange={setTime} disabled={busy} />
     </View>
     {!!timeError && <Text accessibilityLiveRegion="polite" style={styles.error}>{timeError}</Text>}
     <Button title={busy ? '저장 중…' : '일정 저장'} disabled={busy || !canSave} onPress={() => void save()} />
@@ -179,5 +168,4 @@ const styles = StyleSheet.create({
   textButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', alignContent: 'center', gap: 8, flexWrap: 'wrap', minHeight: 48, paddingHorizontal: 12, backgroundColor: C.pale, borderRadius: 9 },
   error: { color: '#a13b35', fontSize: 13, lineHeight: 20 },
-  timeInput: { width: 64, textAlign: 'center', textAlignVertical: 'center' },
 });

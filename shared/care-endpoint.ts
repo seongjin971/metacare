@@ -4,10 +4,11 @@ export function configuredCareEndpoint(value: string, development: boolean): str
   let url: URL;
   try { url = new URL(value.trim()); } catch { throw new Error(invalid); }
   const host = url.hostname.toLowerCase().replace(/\.$/, '');
-  const local = host === 'localhost' || host.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(host)
-    || host === '[::1]' || host === '[::]' || host === '0.0.0.0' || host === '10.0.2.2'
-    || /^\[::ffff:7f[0-9a-f]{2}:/.test(host);
-  if (url.username || url.password || url.search || url.hash || (!development && local)
+  // URL normalizes numeric, hexadecimal and IPv6 host spellings before this check.
+  // Deployed apps use a named HTTPS service. Emulator and LAN hosts remain available in development.
+  const publicName = /^(?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*$/.test(host)
+    && !/(^|\.)(localhost|local|localdomain|internal|lan|home|home\.arpa)$/.test(host);
+  if (url.username || url.password || url.search || url.hash || (!development && !publicName)
     || (url.protocol !== 'https:' && !(development && url.protocol === 'http:'))) throw new Error(invalid);
   return url.toString().replace(/\/+$/, '');
 }

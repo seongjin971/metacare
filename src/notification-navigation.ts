@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { router, useRootNavigationState } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { resolveNotificationRoute } from './notification-routes';
+import { isPatientReminder } from './reminder-plan';
 
 /** Mount once in the root layout. Notification payloads cannot open external URLs. */
 export function useNotificationNavigation(): void {
@@ -14,12 +15,11 @@ export function useNotificationNavigation(): void {
 
     const handleResponse = (response: Notifications.NotificationResponse) => {
       const notification = response.notification;
-      if (notification.request.content.data?.type === 'overdue-dose') return;
       const key = `${notification.request.identifier}:${notification.date}:${response.actionIdentifier}`;
       if (lastHandled.current === key) return;
 
       const url = resolveNotificationRoute(notification.request.content.data?.url);
-      if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER || url === null) {
+      if (!isPatientReminder(notification.request.identifier) || response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER || url === null) {
         Notifications.clearLastNotificationResponse();
         return;
       }

@@ -14,7 +14,6 @@
 !api
 /api/*
 !api/care.mjs
-!api/overdue.mjs
 !care-public
 /care-public/*
 !care-public/index.html
@@ -24,11 +23,7 @@
 !server
 /server/*
 !server/care-core.ts
-!server/queue-runtime.mjs
-!server/overdue.ts
-!server/web-push.ts
-!server/vercel-overdue.ts
-!server/vercel-overdue.sql
+!server/retire-caregiver-push.sql
 !server/care-errors.ts
 !server/vercel-care.ts
 !server/vercel-photos.ts

@@ -11,7 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.metacare.caregiver",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "환자 앱과 복약 기록을 연결하기 위해 개발 서버에 접속합니다.",
+        "NSLocalNetworkUsageDescription": "같은 네트워크의 복약 공유 서버에 연결할 때 사용합니다.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
@@ -20,6 +20,12 @@
     "android": {
       "package": "com.metacare.caregiver",
       "versionCode": 1,
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "../assets/metacare-adaptive.png",
         "backgroundColor": "#208472"
@@ -34,13 +40,7 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-secure-store",
-      [
-        "expo-notifications",
-        {
-          "defaultChannel": "caregiver-overdue"
-        }
-      ]
+      "expo-secure-store"
     ],
     "extra": {
       "router": {

@@ -2,7 +2,12 @@ import { localDateKey, type AppState } from './domain.ts';
 import { normalizeReminderOffsets } from './reminder-settings.ts';
 
 export const REMINDER_PREFIX = 'metacare-reminder-';
+export const TEST_REMINDER_ID = 'metacare-test';
 export const MAX_SCHEDULED_REMINDERS = 48;
+
+export function isPatientReminder(id: string) {
+  return id.startsWith(REMINDER_PREFIX) || id === TEST_REMINDER_ID;
+}
 
 export type PlannedReminder = {
   id: string;
