@@ -38,6 +38,9 @@ yarn-error.*
 credentials.json
 google-services.json
 *firebase-adminsdk*.json
+GoogleService-Info.plist
+service-account*.json
+*.pfx
 .claude/
 .codex/
 

@@ -239,16 +239,17 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
     const epoch = ++generation.current;
     try {
       let current = saved.current;
-      if (!current) {
+      let existing = current ? await careRequest<Connection>('/v1/patient/connection', { token: current.token }) : null;
+      if (!alive.current || generation.current !== epoch) return;
+      if (!current || existing?.sharingRevoked) {
         // This is the only identity creation path, reached by the explicit consent button.
         const created = await careRequest<{ token: string }>('/v1/patients', { method: 'POST', body: {} });
         if (!alive.current || generation.current !== epoch) return;
-        current = { token: created.token, patientName: '환자', consentVersion: 1, active: false };
+        current = { token: created.token, patientName: current?.patientName ?? '환자', consentVersion: 1, active: false };
         await save(current, epoch);
+        existing = { caregiverName: null, connectedAt: null };
       }
-      if (!alive.current || generation.current !== epoch) return;
-      const existing = await careRequest<Connection>('/v1/patient/connection', { token: current.token });
-      if (!alive.current || generation.current !== epoch) return;
+      if (!alive.current || generation.current !== epoch || !existing) return;
       if (existing.caregiverName && existing.connectedAt) {
         setConnection(existing);
         current = reconcileVisitConsent({ ...current, active: true, wasConnected: true }, existing.connectedAt, existing.visitConsent);

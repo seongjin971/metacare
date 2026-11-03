@@ -10,7 +10,7 @@ import { getOverdueSettings, reconcileOverdue, setOverdueSettings } from './verc
 const snapshotLimit = 256 * 1024;
 const photoPartLimit = 4_200_000; // 3 MiB base64 plus JSON, below Vercel's 4.5 MB request limit.
 const tenMinutes = 10 * 60_000;
-const patientColumns = 'id, token_hash AS "tokenHash", snapshot, visit_update AS "visitUpdate", invite, caregiver';
+const patientColumns = 'id, token_hash AS "tokenHash", snapshot, visit_update AS "visitUpdate", invite, caregiver, sharing_revoked AS "sharingRevoked"';
 const tokenColumns: Record<Role, string> = { patient: 'token_hash', caregiver: "(caregiver->>'tokenHash')" };
 
 // Korean clinic appointments are entered as a date and wall-clock time; Vercel functions run in UTC.
@@ -40,8 +40,8 @@ function transactionStore(client: PoolClient, now: () => number, enqueue: Enqueu
       await client.query('INSERT INTO metacare_patients(id,token_hash) VALUES ($1,$2)', [patient.id, patient.tokenHash]);
     },
     async replace(patient) {
-      await client.query('UPDATE metacare_patients SET snapshot=$2, visit_update=$3, invite=$4, caregiver=$5 WHERE id=$1',
-        [patient.id, patient.snapshot, patient.visitUpdate ?? null, patient.invite, patient.caregiver]);
+      await client.query('UPDATE metacare_patients SET snapshot=$2, visit_update=$3, invite=$4, caregiver=$5, sharing_revoked=$6 WHERE id=$1',
+        [patient.id, patient.snapshot, patient.visitUpdate ?? null, patient.invite, patient.caregiver, patient.sharingRevoked ?? false]);
       await pruneVercelPhotos(client, patient.id, patient.caregiver ? [...photoIds(patient)] : []);
       await reconcileOverdue(client, patient, now(), enqueue);
     },

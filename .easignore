@@ -7,8 +7,10 @@ expo-env.d.ts
 .kotlin/
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
+*.pfx
 *.key
 *.mobileprovision
 .metro-health-check*
@@ -32,6 +34,8 @@ server/data/
 credentials.json
 google-services.json
 *firebase-adminsdk*.json
+GoogleService-Info.plist
+service-account*.json
 server/
 api/
 care-public/

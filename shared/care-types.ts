@@ -35,6 +35,7 @@ export type PatientSnapshotUpdate = SnapshotInput & { visitUpdate?: VisitUpdate 
 export type PatientSession = { token: string };
 export type Invite = { code: string; expiresAt: string };
 export type PatientConnection = {
+  sharingRevoked?: boolean;
   caregiverName: string | null;
   connectedAt: string | null;
   photoTransfer?: PhotoTransfer;

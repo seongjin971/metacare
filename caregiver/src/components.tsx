@@ -79,9 +79,14 @@ export function DoseList({ doses, onPhoto }: { doses: SharedDose[]; onPhoto: (do
 }
 
 export function PhotoViewer({ dose, onClose }: { dose: SharedDose | null; onClose: () => void }) {
-  const { mode } = useCaregiver();
-  if (!dose?.photo || mode === 'disconnected') return null;
-  return <SharedPhotoViewer key={`${mode}:${dose.photo.id}`} dose={dose} onClose={onClose} />;
+  const { mode, data } = useCaregiver();
+  const current = dose?.photo && data?.snapshot?.doses.find(item =>
+    item.id === dose.id && item.status === 'taken' && item.photo?.id === dose.photo?.id);
+  useEffect(() => {
+    if (dose && !current) onClose();
+  }, [dose, current, onClose]);
+  if (!current?.photo || mode === 'disconnected') return null;
+  return <SharedPhotoViewer key={`${mode}:${current.photo.id}`} dose={current} onClose={onClose} />;
 }
 
 function SharedPhotoViewer({ dose, onClose }: { dose: SharedDose; onClose: () => void }) {

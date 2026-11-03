@@ -112,6 +112,11 @@ test('Vercel handlers share durable pairing, scoped snapshots, multipart photos 
   assert.equal((await api(first, '/v1/caregiver/snapshot', 'GET', guardian)).status, 200);
   assert.equal((await disconnect(new Uint8Array(0))).status, 200);
   assert.equal((await api(first, photoPath, 'GET', guardian)).status, 401);
+  const delayed = await api(first, '/v1/patient/snapshot', 'PUT', patient, withVisit);
+  assert.equal(delayed.status, 200);
+  assert.equal((await delayed.json()).sharingRevoked, true);
+  const retained = await two.query('SELECT count(*)::int AS count FROM metacare_patients WHERE snapshot IS NOT NULL');
+  assert.equal(retained.rows[0].count, 0, 'late upload cannot restore withdrawn records');
   assert.notEqual((await api(first, '/v1/patient/photos/photo1/parts/1', 'PUT', patient, {
     uploadId, base64: image.subarray(PHOTO_PART_BYTES).toString('base64'),
   })).status, 200);

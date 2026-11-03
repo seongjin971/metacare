@@ -384,19 +384,27 @@ test('either device can revoke the connection, erasing consented records and inv
   assert.equal((await f.api('/v1/caregiver/snapshot', 'GET', caregiver)).response.status, 401);
   assert.equal((await f.api('/v1/caregiver/photos/photo-first', 'GET', caregiver)).response.status, 401);
   assert.equal((await f.connect(invite.code)).response.status, 400);
+  // A heartbeat that was queued before unlink may arrive after it, even after a restart.
+  await f.restart();
+  const late = await f.api('/v1/patient/snapshot', 'PUT', patient, snapshot());
+  assert.equal(late.response.status, 200);
+  assert.equal(late.body.sharingRevoked, true);
   assert.ok(!(await readFile(f.dataPath, 'utf8')).includes('김환자'));
   const second = await f.pair(patient);
   assert.equal((await f.api<CaregiverData>('/v1/caregiver/snapshot', 'GET', second)).body.snapshot, null);
   await f.api('/v1/patient/snapshot', 'PUT', patient, snapshot());
   assert.equal((await f.api('/v1/caregiver/connection', 'DELETE', second)).response.status, 200);
   assert.equal((await f.api('/v1/caregiver/snapshot', 'GET', second)).response.status, 401);
-  assert.deepEqual((await f.api<PatientConnection>('/v1/patient/connection', 'GET', patient)).body, { caregiverName: null, connectedAt: null });
+  assert.deepEqual((await f.api<PatientConnection>('/v1/patient/connection', 'GET', patient)).body, { caregiverName: null, connectedAt: null, sharingRevoked: true });
+  assert.equal((await f.api('/v1/patient/snapshot', 'PUT', patient, snapshot())).body.sharingRevoked, true);
   const third = await f.pair(patient);
   assert.equal((await f.api<CaregiverData>('/v1/caregiver/snapshot', 'GET', third)).body.snapshot, null);
   await f.api('/v1/patient/connection', 'DELETE', patient);
   const unconsumed = await f.invite(patient);
   await f.api('/v1/patient/connection', 'DELETE', patient);
   assert.equal((await f.connect(unconsumed.code)).response.status, 400);
+  await f.api('/v1/patient/snapshot', 'PUT', patient, snapshot());
+  assert.ok(!(await readFile(f.dataPath, 'utf8')).includes('김환자'));
   await f.restart();
   assert.equal((await f.api('/v1/caregiver/snapshot', 'GET', third)).response.status, 401);
   assert.equal((await f.api('/v1/patient/connection', 'GET', patient)).response.status, 200);

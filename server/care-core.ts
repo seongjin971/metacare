@@ -9,6 +9,7 @@ export type Patient = {
   id: string;
   tokenHash: string;
   snapshot: CareSnapshot | null;
+  sharingRevoked?: boolean;
   visitUpdate?: VisitUpdate;
   invite: { codeHash: string; expiresAt: string } | null;
   caregiver: { tokenHash: string; name: string; connectedAt: string } | null;
@@ -98,9 +99,14 @@ function updateVisit(patient: Patient, input: PatientSnapshotUpdate, now: Date, 
 }
 
 function clearSharedRecords(patient: Patient): Patient {
-  const cleared = { ...patient, caregiver: null, invite: null, snapshot: null, photos: [] };
+  const cleared = { ...patient, caregiver: null, invite: null, snapshot: null, photos: [], sharingRevoked: true };
   delete cleared.visitUpdate;
   return cleared;
+}
+
+// Older saved identities without any remaining shared state may already have been unlinked.
+function sharingRevoked(patient: Patient): boolean {
+  return patient.sharingRevoked ?? (!patient.invite && !patient.caregiver && !patient.snapshot);
 }
 
 function photoData(value: unknown): value is string {
@@ -119,7 +125,9 @@ function hashValue(value: unknown): value is string { return typeof value === 's
 export function photoIds(patient: Patient): Set<string> { return new Set(patient.snapshot?.doses.flatMap(item => item.photo ? [item.photo.id] : []) ?? []); }
 
 export function validPatient(value: unknown): value is Patient {
-  if (!record(value) || !keys(value, ['id', 'tokenHash', 'snapshot', 'invite', 'caregiver', 'photos'], ['visitUpdate'])
+  if (!record(value) || !keys(value, ['id', 'tokenHash', 'snapshot', 'invite', 'caregiver', 'photos'], ['visitUpdate', 'sharingRevoked'])
+    || (value.sharingRevoked !== undefined && typeof value.sharingRevoked !== 'boolean')
+    || (value.sharingRevoked === true && (value.snapshot !== null || value.caregiver !== null || value.invite !== null))
     || !identifier(value.id) || !hashValue(value.tokenHash)
     || (value.snapshot !== null && !snapshotInput(value.snapshot, true))) return false;
   if (value.invite !== null && (!record(value.invite) || !keys(value.invite, ['codeHash', 'expiresAt'])
@@ -177,7 +185,7 @@ export async function routeCare(store: CareStore, method: string, path: string, 
   if (path === '/v1/patients' && method === 'POST') {
     if (!empty(body)) throw new HttpError(400, 'Expected an empty object.');
     const token = randomBytes(32).toString('base64url');
-    await store.create({ id: randomUUID(), tokenHash: hash(token), snapshot: null, invite: null, caregiver: null, photos: [] });
+    await store.create({ id: randomUUID(), tokenHash: hash(token), snapshot: null, invite: null, caregiver: null, photos: [], sharingRevoked: false });
     return { status: 201, body: { token } };
   }
   if (path === '/v1/caregivers/connect' && method === 'POST') {
@@ -196,6 +204,9 @@ export async function routeCare(store: CareStore, method: string, path: string, 
     if (path === '/v1/patient/snapshot' && method === 'PUT') {
       if (!snapshotInput(body) || (store.photoParts && body.doses.filter(item => item.photo).length > MAX_PHOTOS)) throw new HttpError(400, '공유할 기록의 이름, 일정, 날짜 또는 사진 정보를 확인해 주세요.');
       const updated = new Date(now());
+      // Legacy clients publish before issuing a fresh invite. Acknowledge the upload
+      // without retaining any health data until explicit re-consent via a new invite.
+      if (sharingRevoked(patient)) return { status: 200, body: { updatedAt: updated.toISOString(), sharingRevoked: true } };
       const { visitUpdate, nextVisit } = updateVisit(patient, body, updated, isUpcoming);
       const timeZone = body.timeZone ?? patient.snapshot?.timeZone;
       const snapshot: CareSnapshot = { patientName: body.patientName, schedule: body.schedule, doses: body.doses, ...(timeZone && { timeZone }),
@@ -212,12 +223,13 @@ export async function routeCare(store: CareStore, method: string, path: string, 
       do { code = String(randomInt(0, 100000000)).padStart(8, '0'); }
       while (await store.inviteExists(hash(code)));
       const expiresAt = new Date(now() + ttl).toISOString();
-      await store.replace({ ...patient, invite: { codeHash: hash(code), expiresAt } });
+      await store.replace({ ...patient, sharingRevoked: false, invite: { codeHash: hash(code), expiresAt } });
       return { status: 201, body: { code, expiresAt } };
     }
     if (path === '/v1/patient/connection' && method === 'GET') return { status: 200, body: {
       ...(store.photoParts && { photoTransfer: 'parts-v1' }),
       caregiverName: patient.caregiver?.name ?? null, connectedAt: patient.caregiver?.connectedAt ?? null,
+      ...(sharingRevoked(patient) && { sharingRevoked: true }),
       ...(patient.visitUpdate && { visitConsent: { revision: patient.visitUpdate.consentRevision, enabled: patient.visitUpdate.enabled } }),
     } };
     if (path === '/v1/patient/connection' && method === 'DELETE') {

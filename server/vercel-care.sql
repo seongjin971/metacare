@@ -13,6 +13,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS metacare_patient_invite
 CREATE UNIQUE INDEX IF NOT EXISTS metacare_caregiver_token
   ON metacare_patients ((caregiver->>'tokenHash')) WHERE caregiver IS NOT NULL;
 
+ALTER TABLE metacare_patients ADD COLUMN IF NOT EXISTS sharing_revoked boolean;
+UPDATE metacare_patients SET sharing_revoked = (caregiver IS NULL AND invite IS NULL AND snapshot IS NULL)
+  WHERE sharing_revoked IS NULL;
+ALTER TABLE metacare_patients ALTER COLUMN sharing_revoked SET DEFAULT false;
+ALTER TABLE metacare_patients ALTER COLUMN sharing_revoked SET NOT NULL;
+
 CREATE TABLE IF NOT EXISTS metacare_rate_limits (
   ip_hash text PRIMARY KEY,
   reset_at timestamptz NOT NULL,
