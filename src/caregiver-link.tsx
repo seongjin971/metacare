@@ -2,7 +2,8 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { AppState as NativeAppState, StyleSheet, Switch, Text, View } from 'react-native';
 import { careRequest, CareApiError } from '../shared/care-api';
 import { clearSession, readSession, writeSession } from '../shared/care-session';
-import type { PatientConnection as Connection, PatientSnapshotUpdate } from '../shared/care-types';
+import type { PatientConnection as Connection, PatientSnapshotUpdate, PhotoTransfer } from '../shared/care-types';
+import { uploadSharedPhoto } from '../shared/care-photo-parts';
 import type { AppState } from './domain';
 import { makeCareSnapshot } from './caregiver-snapshot';
 import { completePatientRevocation, readPatientSharingSession, reconcileVisitConsent, requestPatientRevocation, type PatientSharingSession } from './caregiver-session';
@@ -93,7 +94,7 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
     return () => { alive.current = false; generation.current += 1; };
   }, []);
 
-  const publish = useCallback(async (current: PatientSession, epoch: number, connectedAt: string | null) => {
+  const publish = useCallback(async (current: PatientSession, epoch: number, connectedAt: string | null, photoTransfer?: PhotoTransfer) => {
     const state = durable.current;
     if (!state) throw new Error('복약 기록을 기기에 저장 중이에요. 잠시 뒤 다시 시도해 주세요.');
     const valid = () => alive.current && generation.current === epoch && saved.current?.active === true
@@ -126,9 +127,9 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
       if (!photo) continue;
       try {
         const dataUri = await readPhotoForSharing(photo);
-        if (!valid() || !foreground.current) return;
-        await careRequest(`/v1/patient/photos/${encodeURIComponent(id)}`, { method: 'PUT', token: current.token, body: { dataUri } });
-        if (!valid()) return;
+        const complete = await uploadSharedPhoto(careRequest, id, current.token, dataUri, photoTransfer,
+          () => valid() && foreground.current && durable.current === state);
+        if (!complete) return;
         uploaded.current.add(id);
       } catch (caught) {
         if (caught instanceof CareApiError && caught.status === 401) throw caught;
@@ -181,7 +182,7 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
       if (next.caregiverName && next.connectedAt && foreground.current) {
         const paired = reconcileVisitConsent(current.wasConnected ? current : { ...current, wasConnected: true }, next.connectedAt, next.visitConsent);
         if (paired !== current) await save(paired, epoch);
-        await publish(paired, epoch, next.connectedAt);
+        await publish(paired, epoch, next.connectedAt, next.photoTransfer);
         if (generation.current === epoch) await onActiveChange(true);
       }
       if (alive.current && generation.current === epoch) setError('');
@@ -252,7 +253,7 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
         setConnection(existing);
         current = reconcileVisitConsent({ ...current, active: true, wasConnected: true }, existing.connectedAt, existing.visitConsent);
         await save(current, epoch);
-        await publish(current, epoch, existing.connectedAt);
+        await publish(current, epoch, existing.connectedAt, existing.photoTransfer);
         if (generation.current === epoch) await onActiveChange(true);
         return;
       }

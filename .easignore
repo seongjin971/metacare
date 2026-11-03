@@ -31,6 +31,12 @@ server/data/
 .env.*
 credentials.json
 server/
+api/
+care-public/
+care-runtime/
+.vercel/
+.vercelignore
+vercel.json
 tests/
 AGENTS.md
 README.md

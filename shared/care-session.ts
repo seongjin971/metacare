@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
+import { serviceSessionKey } from './care-endpoint';
 
-const keyFor = (key: string) => `metacare.${key.replace(/[^A-Za-z0-9._-]/g, '-')}`;
+const keyFor = (key: string) => serviceSessionKey(`metacare.${key.replace(/[^A-Za-z0-9._-]/g, '-')}`, process.env.EXPO_PUBLIC_CARE_URL, __DEV__);
 export async function readSession<T>(key: string): Promise<T | null> {
   const value = await SecureStore.getItemAsync(keyFor(key));
   return value ? JSON.parse(value) as T : null;

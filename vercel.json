@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "regions": ["sin1"],
+  "buildCommand": "tsc -p server/tsconfig.vercel.json && npm run care:migrate",
+  "outputDirectory": "care-public",
+  "functions": {
+    "api/care.mjs": {
+      "includeFiles": "care-runtime/**"
+    }
+  },
+  "routes": [
+    { "src": "^/v1/(.+)$", "dest": "/api/care?careRoute=$1" },
+    { "handle": "filesystem" }
+  ]
+}

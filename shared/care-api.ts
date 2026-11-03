@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { configuredCareEndpoint } from './care-endpoint';
 
 export class CareApiError extends Error {
   readonly status: number;
@@ -9,13 +10,8 @@ export class CareApiError extends Error {
 export function resolveCareUrl(): string {
   const configured = process.env.EXPO_PUBLIC_CARE_URL;
   if (configured) {
-    const url = new URL(configured);
-    const local = ['localhost', '127.0.0.1', '[::1]', '10.0.2.2'].includes(url.hostname);
-    if (url.username || url.password || url.search || url.hash ||
-      (url.protocol !== 'https:' && !(url.protocol === 'http:' && (__DEV__ || local)))) {
-      throw new CareApiError('연결 서버 주소를 확인해 주세요.');
-    }
-    return url.toString().replace(/\/$/, '');
+    try { return configuredCareEndpoint(configured, __DEV__); }
+    catch (error) { throw new CareApiError(error instanceof Error ? error.message : '복약 공유 서버 주소를 확인해 주세요.'); }
   }
   if (__DEV__) {
     const location = typeof window !== 'undefined' ? window.location : undefined;

@@ -11,6 +11,7 @@ export type SharedDose = {
 
 /** Only the separately consented next visit, without contact or booking details. */
 export type SharedVisit = { hospitalName: string; date: string; time: string };
+export type PhotoTransfer = 'parts-v1';
 
 export type CareSnapshot = {
   patientName: string;
@@ -34,7 +35,8 @@ export type Invite = { code: string; expiresAt: string };
 export type PatientConnection = {
   caregiverName: string | null;
   connectedAt: string | null;
+  photoTransfer?: PhotoTransfer;
   visitConsent?: { revision: number; enabled: boolean };
 };
 export type CaregiverSession = { token: string; patientName: string };
-export type CaregiverData = { snapshot: CareSnapshot | null; connectedAt: string; caregiverName: string };
+export type CaregiverData = { snapshot: CareSnapshot | null; connectedAt: string; caregiverName: string; photoTransfer?: PhotoTransfer };

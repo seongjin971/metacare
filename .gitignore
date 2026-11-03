@@ -51,6 +51,8 @@ credentials.json
 # Local sharing server data and preview artifacts
 server/data/
 .preview/
+.vercel/
+care-runtime/
 *.apk
 *.aab
 *.ipa

@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { careRequest, CareApiError } from '../../shared/care-api';
+import { downloadSharedPhoto } from '../../shared/care-photo-parts';
 import { clearSession, readSession, writeSession } from '../../shared/care-session';
 import type { CaregiverData, CaregiverSession } from '../../shared/care-types';
 import { isSharedVisit } from '../../shared/care-visit';
@@ -336,15 +337,14 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     } catch { setError('설정을 저장하지 못했어요. 다시 시도해 주세요.'); return false; }
   }, [persist]);
 
+  const photoTransfer = data?.photoTransfer;
   const loadPhoto = useCallback(async (id: string) => {
     const session = sessionRef.current;
     const generation = epoch.current;
     if (!session || modeRef.current !== 'connected') return null;
     try {
-      const response = await careRequest<{ dataUri: string }>(`/v1/caregiver/photos/${encodeURIComponent(id)}`, { token: session.token });
-      if (generation !== epoch.current || sessionRef.current !== session) return null;
-      if (typeof response.dataUri !== 'string' || !/^data:image\/(?:jpeg|png|webp);base64,/.test(response.dataUri)) throw new Error('사진 형식을 읽을 수 없어요.');
-      return response.dataUri;
+      return await downloadSharedPhoto(careRequest, id, session.token, photoTransfer,
+        () => generation === epoch.current && sessionRef.current === session);
     } catch (cause) {
       if (generation !== epoch.current) return null;
       if (cause instanceof CareApiError && (cause.status === 401 || cause.status === 403)) {
@@ -353,7 +353,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
       }
       throw new Error('사진을 불러오지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.');
     }
-  }, [clearPrivateState]);
+  }, [clearPrivateState, photoTransfer]);
 
   const now = mode === 'demo' ? new Date(`${demoDate}T14:20:00`) : clock;
   const patientName = data?.snapshot?.patientName.trim() || sessionPatientName.trim() || '환자';

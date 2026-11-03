@@ -1,7 +1,10 @@
 {
   "cli": { "appVersionSource": "local" },
   "build": {
-    "preview": { "node": "24.22.2", "distribution": "internal", "android": { "buildType": "apk" } },
+    "preview": {
+      "node": "24.22.2", "distribution": "internal", "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_CARE_URL": "https://metacare-sharing-test.vercel.app" }
+    },
     "production": { "node": "24.22.2", "autoIncrement": true }
   }
 }
