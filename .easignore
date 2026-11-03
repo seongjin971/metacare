@@ -47,4 +47,5 @@ tests/
 AGENTS.md
 README.md
 *.apk
+*.sha256
 *.aab

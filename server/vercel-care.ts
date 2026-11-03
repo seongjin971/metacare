@@ -135,17 +135,27 @@ async function rateLimit(pool: Pool, request: Request, now: number) {
 
 type Options = { now?: () => number; allowedOrigins?: string[]; enqueue?: EnqueueOverdue };
 
+function isDeployedWebOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/\.$/, '');
+    // Vercel serves named HTTPS sites. Local origins belong to the PC preview server.
+    return url.protocol === 'https:' && url.origin === value && host.includes('.')
+      && !isIP(host) && !/(^|\.)(localhost|local|internal|lan|home\.arpa)$/.test(host);
+  } catch { return false; }
+}
+
 export function createVercelCareHandler(pool: Pool, options: Options = {}) {
   const now = options.now ?? Date.now;
   const enqueue = options.enqueue ?? (async () => { throw new Error('Overdue queue not configured.'); });
   const configuredOrigins = [process.env.CARE_ALLOWED_ORIGINS, process.env.CARE_WEB_PREVIEW_ORIGINS]
     .flatMap(value => value?.split(',') ?? []).map(value => value.trim()).filter(Boolean);
-  const origins = new Set(options.allowedOrigins ?? configuredOrigins);
+  const origins = new Set((options.allowedOrigins ?? configuredOrigins).filter(isDeployedWebOrigin));
   return async function handle(request: Request): Promise<Response> {
     const headers = new Headers({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Vary': 'Origin' });
     try {
       const origin = request.headers.get('origin');
-      if (origin) {
+      if (origin !== null) {
         if (!origins.has(origin)) throw new HttpError(403, 'Origin is not allowed.');
         headers.set('Access-Control-Allow-Origin', origin);
         headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');

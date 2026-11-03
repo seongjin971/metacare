@@ -10,6 +10,30 @@ import { MAX_PHOTO_BYTES, PHOTO_PART_BYTES, uploadSharedPhoto, downloadSharedPho
 // Deliberately do not fall back to DATABASE_URL, which may belong to a deployed service.
 const testUrl = process.env.TEST_DATABASE_URL;
 
+test('deployed API accepts only configured HTTPS web origins, even if a PC preview origin is configured', async () => {
+  const allowed = ['https://patient.example', 'https://caregiver.example'];
+  const development = ['http://localhost:8081', 'https://preview.localhost.', 'https://192.168.1.10',
+    'https://[::1]', 'https://preview.local', 'https://intranet', 'http://patient.example', 'null', ''];
+  const pool = new Pool();
+  try {
+    const handle = createVercelCareHandler(pool, { allowedOrigins: [...allowed, ...development] });
+    const preflight = (origin?: string) => handle(new Request('https://api.example/v1/caregiver/snapshot', {
+      method: 'OPTIONS', headers: origin === undefined ? {} : { origin },
+    }));
+    for (const origin of allowed) {
+      const response = await preflight(origin);
+      assert.equal(response.status, 204);
+      assert.equal(response.headers.get('access-control-allow-origin'), origin);
+    }
+    for (const origin of [...development, 'https://unlisted.example']) {
+      const response = await preflight(origin);
+      assert.equal(response.status, 403);
+      assert.equal(response.headers.get('access-control-allow-origin'), null);
+    }
+    assert.equal((await preflight()).status, 204);
+  } finally { await pool.end(); }
+});
+
 test('Vercel handlers share durable pairing, scoped snapshots, multipart photos and rate limits', { skip: !testUrl }, async t => {
   const schema = 'care_test_' + randomBytes(10).toString('hex');
   const admin = new Pool({ connectionString: testUrl });

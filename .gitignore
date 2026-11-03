@@ -59,6 +59,7 @@ server/data/
 .vercel/
 care-runtime/
 *.apk
+*.sha256
 *.aab
 *.ipa
 *.log
