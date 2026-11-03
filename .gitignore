@@ -36,6 +36,8 @@ yarn-error.*
 .env.*
 !.env.example
 credentials.json
+google-services.json
+*firebase-adminsdk*.json
 .claude/
 .codex/
 

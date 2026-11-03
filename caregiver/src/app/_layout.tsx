@@ -9,13 +9,17 @@ import { C, Icon, s, type IconName } from '../../../src/ui';
 import { CaregiverProvider, useCaregiver } from '../store';
 import { ConnectScreen } from '../connect-screen';
 import { colors } from '../components';
+import { consumeAlertTap, supportsCareAlerts, watchAlertTaps } from '../alert-device';
+import { isCalendarDate } from '../../../src/calendar';
 
 function Navigation() {
-  const { ready, mode } = useCaregiver();
+  const { ready, mode, data } = useCaregiver();
   const inset = useSafeAreaInsets();
   const path = usePathname();
   const root = useRootNavigationState();
   const enteredFromConnection = useRef(false);
+  const handledAlert = useRef('');
+  const connectedAt = data?.connectedAt;
   useEffect(() => {
     if (!ready) return;
     if (mode === 'disconnected') enteredFromConnection.current = true;
@@ -24,6 +28,21 @@ function Navigation() {
       if (path !== '/') router.replace('/');
     }
   }, [ready, mode, root?.key, path]);
+  useEffect(() => {
+    if (!supportsCareAlerts || !root?.key || mode !== 'connected' || !connectedAt) return;
+    const subscription = watchAlertTaps(response => {
+      const { request, date: delivered } = response.notification;
+      const payload = request.content.data;
+      const id = `${request.identifier}-${delivered}`;
+      if (payload?.type === 'overdue-dose' && payload.connectedAt === connectedAt && isCalendarDate(payload.date)
+          && typeof payload.time === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(payload.time) && handledAlert.current !== id) {
+        handledAlert.current = id;
+        router.navigate({ pathname: '/history', params: { date: payload.date, time: payload.time, alert: id } });
+      }
+      consumeAlertTap();
+    });
+    return () => subscription.remove();
+  }, [root?.key, mode, connectedAt]);
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, backgroundColor: C.bg }}><ActivityIndicator color={colors.teal} /><Text style={s.body}>연결 정보를 불러오는 중이에요.</Text></View>;
   if (mode === 'disconnected') return <ConnectScreen />;
   return <Tabs backBehavior="history" screenOptions={{

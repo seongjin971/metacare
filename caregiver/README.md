@@ -1,6 +1,6 @@
 # 메타케어 보호자
 
-환자 앱과 별도로 설치하는 Expo SDK 58 앱입니다. Android 패키지는 `com.metacare.caregiver`, iOS 번들 ID도 `com.metacare.caregiver`입니다. 환자 앱은 기존 `com.metacare.demo`를 유지합니다. 아직 EAS 프로젝트를 생성하거나 APK를 빌드하지 않았습니다.
+환자 앱과 별도로 설치하는 Expo SDK 58 앱입니다. Android 패키지와 iOS 번들 ID는 `com.metacare.caregiver`이며 보호자 전용 EAS 프로젝트 `kwaksungjins-team/metacare-caregiver`를 사용합니다.
 
 ## 실행
 
@@ -25,11 +25,13 @@ node scripts/caregiver-preview.cjs
 - 기록·일정 최근 90일 최대 300개, 사진 최대 30장·장당 5MiB. 사진 파일이 아직 전송되지 않았거나 용량이 크면 기록만 먼저 표시하고 사진 조회 실패를 안내합니다.
 - 보호자는 공유 데이터를 수정할 수 없습니다. 전화 버튼은 등록한 번호의 전화 앱을 여는 동작이며, 앱에서 직접 전화를 발신하거나 메시지를 보내지 않습니다.
 - 환자 전송·보호자 조회는 전경에서 수행합니다. 마지막 수신 시각과 환자 갱신 시각을 구분하며, 오래된 캐시는 최신으로 표시하지 않습니다.
-- 표시 기준은 **앱 내부 표시**용입니다. 잠금화면 알림·백그라운드 푸시는 아직 연결하지 않았습니다.
+- 관리에서 **미기록 알림 받기**를 켜면 서버가 대기 시간이 지난 회차를 확인해 보호자 휴대폰으로 푸시를 보냅니다. 설치한 보호자 앱에서 알림 권한을 허용해야 합니다. 알림을 누르면 해당 날짜의 기록을 엽니다. 웹과 Android Expo Go는 화면의 미기록 표시를 검토하는 데 사용할 수 있습니다.
 - PC 미리보기는 로컬 서버를, 휴대폰 테스트는 Vercel API와 비공개 PostgreSQL을 사용합니다. 환자 앱과 같은 HTTPS 주소로 설정합니다. [원격 테스트 환경](../server/VERCEL.md)
 - 환자의 사진 판별은 기존 네이티브 모듈이 필요합니다. 웹/Expo Go에서는 새 사진 인증을 완료할 수 없습니다.
 
 공통 UI·모션·달력은 상위 `src`를 재사용하고, 최소 공유 형식·통신·기기 인증 저장은 상위 `shared`에 있습니다. 공유 서버는 `server/care-server.ts`이며 기록 파일은 git/EAS 업로드에서 제외합니다.
+
+Android 푸시 빌드에는 보호자 패키지로 등록한 Firebase Android 앱의 `google-services.json` 파일이 필요합니다. 빌드 환경의 파일 변수 `CAREGIVER_GOOGLE_SERVICES_FILE`에 설정하고, 같은 Firebase 프로젝트의 FCM v1 서비스 계정을 보호자 EAS 프로젝트의 Android 푸시 자격 증명에 등록합니다. iOS는 해당 번들 ID의 APNs 키를 설정합니다. [Expo 푸시 설정](https://docs.expo.dev/push-notifications/push-notifications-setup/)
 
 ## 검증
 

@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { Modal, Text, TextInput, View } from 'react-native';
+import { Modal, Switch, Text, TextInput, View } from 'react-native';
 import { Card, Icon, s } from '../../../src/ui';
 import { MotionPressable as Pressable, useReducedMotion } from '../../../src/motion';
 import { CareButton, CarePage, colors, shortTimestamp, styles } from '../components';
-import { OVERDUE_THRESHOLDS } from '../care-status';
+import { OVERDUE_THRESHOLDS, type OverdueThreshold } from '../care-status';
+import { supportsCareAlerts } from '../alert-device';
 import { dialNumber } from '../patient-contact';
 import { useCaregiver } from '../store';
 
 export default function SettingsScreen() {
-  const { prefs, data, mode, patientName, savePreferences, disconnect, busy, error, exitDemo } = useCaregiver();
+  const { prefs, alerts, data, mode, patientName, savePreferences, disconnect, busy, error, exitDemo } = useCaregiver();
   const [edits, setEdits] = useState<Partial<typeof prefs>>({});
   const draft = { ...prefs, ...edits };
   const [saved, setSaved] = useState(false);
@@ -17,6 +18,18 @@ export default function SettingsScreen() {
   const [confirming, setConfirming] = useState(false);
   const reducedMotion = useReducedMotion();
   const dirty = JSON.stringify(draft) !== JSON.stringify(prefs);
+  const canRegister = mode === 'connected' && supportsCareAlerts;
+  const timingDisabled = saving || busy || alerts.busy || (canRegister && !alerts.confirmed);
+  const changeTiming = async (threshold: OverdueThreshold, enabled: boolean) => {
+    if (timingDisabled) return;
+    setSaving(true); setSaved(false); setFormError(null);
+    try {
+      if (canRegister && (enabled || alerts.confirmed?.enabled)) {
+        if (!await alerts.update(enabled, threshold)) return;
+      }
+      if (enabled || alerts.confirmed?.enabled || threshold !== prefs.threshold) await savePreferences({ ...prefs, threshold });
+    } finally { setSaving(false); }
+  };
   const save = async () => {
     setSaved(false); setFormError(null);
     const phone = draft.phone.trim();
@@ -44,8 +57,20 @@ export default function SettingsScreen() {
     </Card>
     <Card style={{ gap: 12 }}>
       <Text style={s.section}>미기록 표시 기준</Text><Text style={s.body}>예정 시각에서 아래 시간이 지나면 미기록으로 표시해요.</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{OVERDUE_THRESHOLDS.map(threshold => <Pressable key={threshold} accessibilityRole="button" accessibilityLabel={`미기록 기준 ${threshold}분`} accessibilityState={{ selected: draft.threshold === threshold }} onPress={() => update({ threshold })} style={{ minHeight: 44, minWidth: 62, flexGrow: 1, borderRadius: 8, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: draft.threshold === threshold ? colors.teal : colors.soft }}><Text style={{ color: draft.threshold === threshold ? 'white' : colors.teal, fontSize: 14, fontWeight: '600' }}>{threshold}분</Text></Pressable>)}</View>
-      <Text style={s.micro}>앱을 열어 둔 동안의 표시 기준이에요. 앱 밖으로 알림을 보내는 설정은 아니에요.</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{OVERDUE_THRESHOLDS.map(threshold => <Pressable key={threshold} accessibilityRole="button" accessibilityLabel={`미기록 기준 ${threshold}분`} accessibilityState={{ selected: prefs.threshold === threshold, disabled: timingDisabled }} disabled={timingDisabled} onPress={() => void changeTiming(threshold, alerts.confirmed?.enabled ?? false)} style={{ minHeight: 44, minWidth: 62, flexGrow: 1, borderRadius: 8, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: prefs.threshold === threshold ? colors.teal : colors.soft }}><Text style={{ color: prefs.threshold === threshold ? 'white' : colors.teal, fontSize: 14, fontWeight: '600' }}>{threshold}분</Text></Pressable>)}</View>
+      <View style={[s.row, { gap: 16 }]}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={s.label}>미기록 알림 받기</Text>
+          <Text style={s.micro}>{mode === 'demo' ? '환자와 연결한 뒤 켤 수 있어요.' : !supportsCareAlerts ? '설치한 보호자 앱에서 켤 수 있어요.' : '대기 시간이 지나도 기록이 없으면 한 번 알려드려요.'}</Text>
+        </View>
+        <Switch accessibilityLabel="미기록 알림 받기" value={canRegister && alerts.confirmed?.enabled === true}
+          disabled={!canRegister || timingDisabled} onValueChange={enabled => void changeTiming(prefs.threshold, enabled)}
+          trackColor={{ false: '#dfe5ee', true: colors.teal }} />
+      </View>
+      {!!alerts.error && <Text accessibilityRole="alert" style={[s.micro, { color: colors.amber }]}>{alerts.error}</Text>}
+      {canRegister && !alerts.confirmed && (alerts.error
+        ? <CareButton title="알림 설정 다시 확인" secondary onPress={() => void alerts.refresh()} />
+        : <Text style={s.micro}>알림 설정 확인 중…</Text>)}
     </Card>
     {(formError || error) && <Text accessibilityRole="alert" style={[s.body, { color: colors.amber }]}>{formError || error}</Text>}
     {saved && <Text accessibilityLiveRegion="polite" style={[s.body, { color: colors.teal }]}>{mode === 'demo' ? '예시 설정을 적용했어요.' : '설정을 저장했어요.'}</Text>}

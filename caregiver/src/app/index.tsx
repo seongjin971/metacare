@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import { Card, Empty, Icon, s } from '../../../src/ui';
-import { formatDate, localDateKey } from '../../../src/domain';
+import { formatDate } from '../../../src/domain';
 import type { SharedDose } from '../../../shared/care-types';
 import { isUpcomingVisit } from '../../../shared/care-visit';
 import { CarePage, DoseList, PhotoViewer, SyncStatus, colors } from '../components';
@@ -10,12 +10,11 @@ import { getDoseState, summarizeDoses } from '../care-status';
 import { useCaregiver } from '../store';
 
 export default function TodayScreen() {
-  const { data, prefs, now, mode, networkError, patientName } = useCaregiver();
+  const { data, prefs, now, today, medicationClock, mode, networkError, patientName } = useCaregiver();
   const [photo, setPhoto] = useState<SharedDose | null>(null);
-  const today = localDateKey(now);
   const doses = (data?.snapshot?.doses ?? []).filter(dose => dose.date === today).sort((a, b) => a.time.localeCompare(b.time));
-  const summary = summarizeDoses(doses, prefs.threshold, now);
-  const overdue = doses.filter(dose => getDoseState(dose, prefs.threshold, now) === 'overdue');
+  const summary = summarizeDoses(doses, prefs.threshold, now, medicationClock);
+  const overdue = doses.filter(dose => getDoseState(dose, prefs.threshold, now, medicationClock) === 'overdue');
   const patient = prefs.patientNickname || patientName;
   const nextVisit = data?.snapshot?.nextVisit;
   return <CarePage title="오늘">

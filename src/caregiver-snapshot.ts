@@ -13,6 +13,7 @@ export function makeCareSnapshot(state: AppState, patientName: string, now = new
   const visit = shareNextVisit ? upcomingVisits(state, now)[0] : undefined;
   return {
     patientName,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
     ...(visit ? { nextVisit: { hospitalName: visit.hospitalName, date: visit.date, time: visit.time } } : {}),
     schedule: { frequency: state.medicationSchedule.frequency, times: [...state.medicationSchedule.times] },
     doses: doses.map(dose => ({

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { startCareServer } from '../server/care-server.ts';
+import { RetryablePushError } from '../server/overdue.ts';
 import type { CaregiverData, CaregiverSession, CareSnapshot, Invite, PatientConnection, PatientSession, SnapshotInput } from '../shared/care-types.ts';
 
 const NOW = Date.parse('2026-11-01T00:00:00.000Z');
@@ -59,8 +60,126 @@ async function fixture(t: TestContext, extra: Parameters<typeof startCareServer>
     return result.body.token;
   };
   const restart = async () => { await running.close(); running = await startCareServer(options); };
-  return { api, patient, invite, connect, pair, restart, dataPath, directory, port: () => running.port };
+  return { api, patient, invite, connect, pair, restart, dataPath, directory, port: () => running.port,
+    processAlerts: () => running.processDueAlerts() };
 }
+
+const alertsPath = '/v1/caregiver/alerts';
+const enableAlerts = { enabled: true, threshold: 30, timeZone: 'Asia/Seoul', expoPushToken: 'ExpoPushToken[synthetic_local_test]' };
+
+test('closed apps receive one overdue push per slot, including after server restart; a timely record suppresses it', async t => {
+  let clock = Date.parse('2026-11-01T07:00:00+09:00');
+  const pushes: string[] = [];
+  const f = await fixture(t, { now: () => clock, sendOverdue: async (_token, slot) => {
+    pushes.push(slot.date + ' ' + slot.time); return 'accepted';
+  } });
+  const p = await f.patient();
+  const g = await f.pair(p);
+  const shared = snapshot();
+  await f.api('/v1/patient/snapshot', 'PUT', p, { ...shared, doses: [] });
+  assert.equal((await f.api(alertsPath, 'PUT', p, enableAlerts)).response.status, 401);
+  assert.deepEqual((await f.api(alertsPath, 'GET', g)).body, { enabled: false, threshold: 30 });
+  assert.deepEqual((await f.api(alertsPath, 'PUT', g, enableAlerts)).body, { enabled: true, threshold: 30 });
+  clock = Date.parse('2026-11-01T08:29:59+09:00');
+  await f.processAlerts();
+  assert.deepEqual(pushes, []);
+  // Both apps can stop issuing requests before the deadline.
+  await f.restart();
+  clock += 1000;
+  await Promise.all([f.processAlerts(), f.processAlerts()]);
+  assert.deepEqual(pushes, ['2026-11-01 08:00']);
+  // Re-enabling later with a longer delay cannot send a second alert for the same dose.
+  await f.api(alertsPath, 'PUT', g, { enabled: false, threshold: 60 });
+  await f.api(alertsPath, 'PUT', g, { ...enableAlerts, threshold: 60 });
+  clock += 30 * 60000;
+  await f.processAlerts();
+  const evening = { ...shared.doses[1], status: 'taken', takenAt: '2026-11-01T09:30:00.000Z' };
+  clock = Date.parse(evening.takenAt);
+  assert.equal((await f.api('/v1/patient/snapshot', 'PUT', p, { ...shared, doses: [shared.doses[0], evening] })).response.status, 200);
+  clock = Date.parse('2026-11-01T19:00:00+09:00');
+  await f.processAlerts();
+  assert.deepEqual(pushes, ['2026-11-01 08:00']);
+  clock = Date.parse('2026-11-02T09:00:00+09:00');
+  await f.processAlerts();
+  assert.deepEqual(pushes, ['2026-11-01 08:00', '2026-11-02 08:00']);
+  await f.api('/v1/patient/connection', 'DELETE', p);
+  assert.ok(!(await readFile(f.dataPath, 'utf8')).includes(enableAlerts.expoPushToken));
+  await f.restart();
+  clock += 10 * 3600000;
+  await f.processAlerts();
+  assert.equal(pushes.length, 2);
+  assert.equal((await f.api(alertsPath, 'GET', g)).response.status, 401);
+});
+
+test('known push refusal is rechecked before retry; uncertain provider acceptance is not repeated', async t => {
+  let clock = Date.parse('2026-11-01T07:00:00+09:00');
+  const attempts: string[] = [];
+  const f = await fixture(t, { now: () => clock, sendOverdue: async (_token, slot) => {
+    attempts.push(slot.time);
+    if (slot.time === '08:00') throw new RetryablePushError('Rate limited.');
+    throw new Error('Response lost.');
+  } });
+  const p = await f.patient();
+  const g = await f.pair(p);
+  const shared = snapshot();
+  await f.api('/v1/patient/snapshot', 'PUT', p, { ...shared, doses: [] });
+  await f.api(alertsPath, 'PUT', g, enableAlerts);
+  clock = Date.parse('2026-11-01T08:30:00+09:00');
+  await f.processAlerts();
+  assert.deepEqual(attempts, ['08:00']);
+  await f.api('/v1/patient/snapshot', 'PUT', p, shared);
+  clock += 61000;
+  await f.processAlerts();
+  assert.deepEqual(attempts, ['08:00']);
+  clock = Date.parse('2026-11-01T18:30:00+09:00');
+  await f.processAlerts();
+  await f.restart();
+  await f.processAlerts();
+  assert.deepEqual(attempts, ['08:00', '18:00']);
+});
+
+test('an elapsed deadline wakes the HTTP server timer without a poll from either device', async t => {
+  let start: number | undefined;
+  const due = Date.parse('2026-11-01T08:30:00+09:00');
+  const received = Promise.withResolvers<string>();
+  const f = await fixture(t, {
+    now: () => due - 1200 + (start === undefined ? 0 : Date.now() - start),
+    sendOverdue: async (_token, slot) => { received.resolve(slot.time); return 'accepted'; },
+  });
+  const p = await f.patient();
+  const g = await f.pair(p);
+  await f.api('/v1/patient/snapshot', 'PUT', p, { ...snapshot(), doses: [] });
+  start = Date.now();
+  assert.equal((await f.api(alertsPath, 'PUT', g, enableAlerts)).response.status, 200);
+  const timeout = setTimeout(() => received.reject(new Error('Background timer did not send.')), 5000);
+  try { assert.equal(await received.promise, '08:00'); } finally { clearTimeout(timeout); }
+});
+
+test('transferring a push token stops the previous family’s notifications, and revoked platform tokens are forgotten', async t => {
+  let clock = Date.parse('2026-11-01T07:00:00+09:00');
+  const attempts: string[] = [];
+  const f = await fixture(t, { now: () => clock, sendOverdue: async (_token, slot) => {
+    attempts.push(slot.time); return 'unregistered';
+  } });
+  const first = await f.patient();
+  const second = await f.patient();
+  const guardianA = await f.pair(first);
+  const guardianB = await f.pair(second);
+  await f.api('/v1/patient/snapshot', 'PUT', first, { ...snapshot(), schedule: { frequency: 'once', times: ['08:00'] }, doses: [] });
+  await f.api('/v1/patient/snapshot', 'PUT', second, { ...snapshot(), schedule: { frequency: 'once', times: ['09:00'] }, doses: [] });
+  await f.api(alertsPath, 'PUT', guardianA, enableAlerts);
+  await f.api(alertsPath, 'PUT', guardianB, enableAlerts);
+  assert.deepEqual((await f.api(alertsPath, 'GET', guardianA)).body, { enabled: false, threshold: 30 });
+  await f.restart();
+  clock = Date.parse('2026-11-01T08:30:00+09:00');
+  await f.processAlerts();
+  assert.deepEqual(attempts, []);
+  clock += 3600000;
+  await f.processAlerts();
+  assert.deepEqual(attempts, ['09:00']);
+  assert.deepEqual((await f.api(alertsPath, 'GET', guardianB)).body, { enabled: false, threshold: 30 });
+  assert.ok(!(await readFile(f.dataPath, 'utf8')).includes(enableAlerts.expoPushToken));
+});
 
 test('care authenticates devices, isolates families, and gives caregivers read-only records', async t => {
   const f = await fixture(t);

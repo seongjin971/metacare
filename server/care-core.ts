@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { HttpError } from './care-errors.ts';
+import { validTimeZone } from './overdue.ts';
 import type { CareSnapshot, PatientSnapshotUpdate, SharedDose, SharedVisit, VisitUpdate } from '../shared/care-types.ts';
 import { isCareName as name, isCareDate as date, isCareTime as time, isSharedVisit, isUpcomingVisit } from '../shared/care-visit.ts';
 
@@ -55,7 +56,8 @@ function validVisitUpdate(value: unknown): value is VisitUpdate {
 }
 
 function snapshotInput(value: unknown, persisted = false): value is PatientSnapshotUpdate {
-  if (!record(value) || !keys(value, ['patientName', 'schedule', 'doses', ...(persisted ? ['updatedAt'] : [])], persisted ? ['nextVisit'] : ['nextVisit', 'visitUpdate'])
+  if (!record(value) || !keys(value, ['patientName', 'schedule', 'doses', ...(persisted ? ['updatedAt'] : [])], persisted ? ['nextVisit', 'timeZone'] : ['nextVisit', 'visitUpdate', 'timeZone'])
+    || (Object.hasOwn(value, 'timeZone') && !validTimeZone(value.timeZone))
     || (Object.hasOwn(value, 'nextVisit') && !isSharedVisit(value.nextVisit))
     || (Object.hasOwn(value, 'visitUpdate') && (!validVisitUpdate(value.visitUpdate) || (!value.visitUpdate.enabled && Object.hasOwn(value, 'nextVisit'))))
     || !name(value.patientName) || (persisted && !iso(value.updatedAt)) || !record(value.schedule)
@@ -145,6 +147,7 @@ export type CareStore = {
   inviteExists(codeHash: string): MaybePromise<boolean>;
   create(patient: Patient): Promise<void>;
   replace(patient: Patient): Promise<void>;
+  alerts?(patient: Patient, method: string, body: unknown, nowMs: number): Promise<CareResult>;
   photoParts?(patientId: string, photoId: string, parts: string[], method: string, body: unknown, role: Role): Promise<CareResult>;
 };
 
@@ -194,7 +197,8 @@ export async function routeCare(store: CareStore, method: string, path: string, 
       if (!snapshotInput(body) || (store.photoParts && body.doses.filter(item => item.photo).length > MAX_PHOTOS)) throw new HttpError(400, '공유할 기록의 이름, 일정, 날짜 또는 사진 정보를 확인해 주세요.');
       const updated = new Date(now());
       const { visitUpdate, nextVisit } = updateVisit(patient, body, updated, isUpcoming);
-      const snapshot: CareSnapshot = { patientName: body.patientName, schedule: body.schedule, doses: body.doses,
+      const timeZone = body.timeZone ?? patient.snapshot?.timeZone;
+      const snapshot: CareSnapshot = { patientName: body.patientName, schedule: body.schedule, doses: body.doses, ...(timeZone && { timeZone }),
         ...(nextVisit && { nextVisit }), updatedAt: updated.toISOString() };
       const next = { ...patient, snapshot, ...(visitUpdate && { visitUpdate }) };
       const references = photoIds(next);
@@ -232,6 +236,9 @@ export async function routeCare(store: CareStore, method: string, path: string, 
   if (path.startsWith('/v1/caregiver/')) {
     const patient = await authenticate(store, authorization, 'caregiver');
     const caregiver = patient.caregiver!;
+    if (path === '/v1/caregiver/alerts' && store.alerts && (method === 'GET' || method === 'PUT')) {
+      return await store.alerts(patient, method, body, now());
+    }
     if (path === '/v1/caregiver/snapshot' && method === 'GET') {
       const snapshot = patient.snapshot && { ...patient.snapshot };
       if (snapshot?.nextVisit && (!patient.visitUpdate?.enabled || !isUpcoming(snapshot.nextVisit, new Date(now())))) delete snapshot.nextVisit;

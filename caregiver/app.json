@@ -12,16 +12,46 @@
       "bundleIdentifier": "com.metacare.caregiver",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "환자 앱과 복약 기록을 연결하기 위해 개발 서버에 접속합니다.",
-        "NSAppTransportSecurity": { "NSAllowsLocalNetworking": true }
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
       }
     },
     "android": {
       "package": "com.metacare.caregiver",
       "versionCode": 1,
-      "adaptiveIcon": { "foregroundImage": "../assets/metacare-adaptive.png", "backgroundColor": "#208472" },
+      "adaptiveIcon": {
+        "foregroundImage": "../assets/metacare-adaptive.png",
+        "backgroundColor": "#208472"
+      },
       "predictiveBackGestureEnabled": true
     },
-    "web": { "name": "메타케어 보호자", "favicon": "../assets/metacare-icon.png", "bundler": "metro" },
-    "plugins": ["expo-router", "expo-font", "expo-secure-store"]
+    "web": {
+      "name": "메타케어 보호자",
+      "favicon": "../assets/metacare-icon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "caregiver-overdue"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "6718d7b6-82af-439c-9c4e-7d09cde20061"
+      }
+    },
+    "owner": "kwaksungjins-team"
   }
 }

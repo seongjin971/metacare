@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getDoseState, summarizeDoses, isSnapshotStale } from '../caregiver/src/care-status.ts';
 import type { SharedDose } from '../shared/care-types.ts';
+import { careClock } from '../shared/care-clock.ts';
 
 const dose: SharedDose = { id: 'dose-a', date: '2026-11-01', time: '13:00', label: '점심 복용약', status: 'pending' };
 const clock = (hour: number, minute: number, second = 0) => new Date(2026, 10, 1, hour, minute, second);
@@ -28,6 +29,12 @@ test('invalid dates and times cannot become missed-dose warnings', () => {
   assert.equal(getDoseState({ ...dose, date: '2026-02-30' }, 30, clock(16, 0)), 'unknown');
   assert.equal(getDoseState({ ...dose, time: '25:00' }, 30, clock(16, 0)), 'unknown');
   assert.equal(getDoseState(dose, 30, new Date('invalid')), 'unknown');
+});
+
+test('caregiver status crosses the threshold at the patient’s scheduled clock time', () => {
+  const patientClock = careClock('Asia/Seoul');
+  assert.equal(getDoseState(dose, 30, new Date('2026-11-01T04:29:59Z'), patientClock), 'waiting');
+  assert.equal(getDoseState(dose, 30, new Date('2026-11-01T04:30:00Z'), patientClock), 'overdue');
 });
 
 test('staleness distinguishes patient upload age from caregiver fetch age', () => {

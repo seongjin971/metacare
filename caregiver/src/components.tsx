@@ -57,8 +57,8 @@ export function SyncStatus() {
 
 const stateLabels = { recorded: '기록됨', overdue: '미기록', waiting: '기록 대기', scheduled: '예정', unknown: '일정 확인 필요' };
 export function DoseRow({ dose, onPhoto }: { dose: SharedDose; onPhoto: (dose: SharedDose) => void }) {
-  const { prefs, now } = useCaregiver();
-  const state = getDoseState(dose, prefs.threshold, now);
+  const { prefs, now, medicationClock } = useCaregiver();
+  const state = getDoseState(dose, prefs.threshold, now, medicationClock);
   const color = state === 'recorded' ? colors.teal : state === 'overdue' ? colors.amber : colors.muted;
   return <View style={styles.doseRow}>
     <Text style={styles.doseTime}>{dose.time}</Text>

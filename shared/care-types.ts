@@ -15,6 +15,8 @@ export type PhotoTransfer = 'parts-v1';
 
 export type CareSnapshot = {
   patientName: string;
+  /** IANA zone for the patient's daily wall-clock medication times. */
+  timeZone?: string;
   schedule: { frequency: 'once' | 'twice' | 'three'; times: string[] };
   doses: SharedDose[];
   nextVisit?: SharedVisit;

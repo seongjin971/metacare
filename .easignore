@@ -30,6 +30,8 @@ server/data/
 .env
 .env.*
 credentials.json
+google-services.json
+*firebase-adminsdk*.json
 server/
 api/
 care-public/

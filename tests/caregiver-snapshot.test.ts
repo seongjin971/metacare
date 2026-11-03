@@ -26,7 +26,8 @@ test('sharing whitelists medication fields without mutating the patient store', 
   state.appointments = [{ id: 'private-appointment', doctorId: 'doctor-kim', date: '2026-11-02', time: '09:00', status: 'confirmed', reason: '진료 이유', createdAt: now.toISOString() }];
   const before = JSON.stringify(state);
   const snapshot = makeCareSnapshot(state, '홍길동', now);
-  assert.deepEqual(Object.keys(snapshot).sort(), ['doses', 'patientName', 'schedule']);
+  assert.deepEqual(Object.keys(snapshot).sort(), ['doses', 'patientName', 'schedule', 'timeZone']);
+  assert.equal(snapshot.timeZone, Intl.DateTimeFormat().resolvedOptions().timeZone);
   assert.deepEqual(Object.keys(snapshot.doses[0]).sort(), ['date', 'id', 'label', 'photo', 'status', 'takenAt', 'time']);
   assert.deepEqual(snapshot.doses[0].photo, { id: 'photo-verified', capturedAt: now.toISOString(), verified: true });
   assert.equal(snapshot.doses[1].takenAt, undefined);

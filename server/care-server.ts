@@ -1,6 +1,6 @@
 /**
  * Authenticated LOCAL prototype for explicit patient-to-caregiver sharing.
- * Tokens and invitation codes are persisted only as hashes. All operations are
+ * Device authentication tokens and invitation codes are persisted only as hashes. All operations are
  * serialized; durable atomic replacement precedes every successful mutation.
  * This is not a deployed medical service: use synthetic records on localhost.
  */
@@ -11,14 +11,17 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { keys, record, routeCare, tokenDigest, validPatient, type CareStore, type Patient } from './care-core.ts';
 import { HttpError } from './care-errors.ts';
+import { claimLocalAlert, disableLocalAlert, planLocalAlert, updateLocalAlerts, validLocalAlerts, type LocalAlert } from './local-overdue.ts';
+import { RetryablePushError, sendOverduePush } from './overdue.ts';
 
-type State = { version: 1; patients: Patient[] };
+type State = { version: 1; patients: Patient[]; alerts: LocalAlert[] };
 type Options = {
   port?: number;
   host?: string;
   dataPath?: string;
   allowedOrigins?: string[];
   now?: () => number;
+  sendOverdue?: typeof sendOverduePush;
   inviteTtlMs?: number;
   rateLimit?: { maxRequests: number; windowMs: number };
 };
@@ -31,19 +34,21 @@ async function loadState(dataPath: string): Promise<State> {
   let contents: string;
   try { contents = await readFile(dataPath, 'utf8'); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, patients: [] };
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, patients: [], alerts: [] };
     throw error;
   }
   let value: unknown;
   try { value = JSON.parse(contents); } catch { throw new Error('Care data is invalid. Preserve and repair the file before starting.'); }
-  if (!record(value) || !keys(value, ['version', 'patients']) || value.version !== 1
+  if (!record(value) || !keys(value, ['version', 'patients'], ['alerts']) || value.version !== 1
     || !Array.isArray(value.patients) || !value.patients.every(validPatient)) throw new Error('Care data is invalid. Preserve and repair the file before starting.');
   const patients = value.patients;
   const tokens = patients.flatMap(patient => [patient.tokenHash, ...(patient.caregiver ? [patient.caregiver.tokenHash] : [])]);
   const invites = patients.flatMap(patient => patient.invite ? [patient.invite.codeHash] : []);
   if (new Set(patients.map(patient => patient.id)).size !== patients.length || new Set(tokens).size !== tokens.length
     || new Set(invites).size !== invites.length) throw new Error('Care data has duplicate identities. Preserve and repair the file before starting.');
-  return { version: 1, patients };
+  const alerts = Object.hasOwn(value, 'alerts') ? value.alerts : [];
+  if (!validLocalAlerts(alerts, patients)) throw new Error('Care notification data is invalid. Preserve and repair the file before starting.');
+  return { version: 1, patients, alerts };
 }
 
 async function persist(dataPath: string, state: State): Promise<void> {
@@ -106,20 +111,74 @@ export async function startCareServer(options: Options = {}) {
   const attempts = new Map<string, { count: number; resetAt: number }>();
   let queue: Promise<void> = Promise.resolve();
   let queued = 0;
+  let alarm: ReturnType<typeof setTimeout> | undefined;
+  let stopping = false;
+  const sendPush = options.sendOverdue ?? sendOverduePush;
 
-  const save = async (patients: Patient[]) => {
-    const next: State = { version: 1, patients };
+  function serialize<T>(work: () => Promise<T>): Promise<T> {
+    const operation = queue.then(work);
+    queue = operation.then(() => {}, () => {});
+    return operation;
+  }
+  function armTimer(retryDelay = 0) {
+    clearTimeout(alarm);
+    const due = state.alerts.reduce((min, alert) => alert.next ? Math.min(min, Math.max(alert.next.dueAt, alert.retryAt ?? 0)) : min, Infinity);
+    if (stopping || !Number.isFinite(due)) return;
+    alarm = setTimeout(() => {
+      void serialize(deliverDue).catch(() => armTimer(5000));
+    }, Math.max(retryDelay, 1, due - now()));
+  }
+  const save = async (patients: Patient[], alerts: LocalAlert[]) => {
+    const next: State = { version: 1, patients, alerts };
     try { await persist(dataPath, next); }
     catch { throw new HttpError(503, '서버에 저장하지 못했어요. 잠시 후 다시 시도해 주세요.'); }
     state = next;
+    armTimer();
   };
 
+  async function deliverDue() {
+    for (const item of state.alerts) {
+      const patient = state.patients.find(p => p.id === item.patientId && p.caregiver?.connectedAt === item.connectedAt);
+      if (!patient) continue;
+      const claim = claimLocalAlert(item, patient, now());
+      if (!claim) continue;
+      const replaceAlert = (replacement: LocalAlert) =>
+        save(state.patients, state.alerts.map(alert => alert.patientId === item.patientId ? replacement : alert));
+      // The claim and the following day's work survive a crash before or after the network call.
+      await replaceAlert(claim.alert);
+      if (!claim.notification) continue;
+      const { token, slot } = claim.notification;
+      let result: Awaited<ReturnType<typeof sendPush>>;
+      try {
+        result = await sendPush(token, slot, item.connectedAt);
+      } catch (error) {
+        // A definite provider refusal can be retried; a lost response may already have delivered the push.
+        if (error instanceof RetryablePushError) await replaceAlert({ ...item, retryAt: now() + 60000 });
+        else console.warn('보호자 알림 발송 결과를 확인하지 못했습니다.');
+        continue;
+      }
+      if (result === 'unregistered') await replaceAlert(disableLocalAlert(claim.alert));
+    }
+    armTimer();
+  }
   const store: CareStore = {
     byToken: (role, tokenHash) => state.patients.find(item => (role === 'patient' ? item.tokenHash : item.caregiver?.tokenHash) === tokenHash),
     byInvite: codeHash => state.patients.find(item => item.invite?.codeHash === codeHash),
     inviteExists: codeHash => state.patients.some(item => item.invite?.codeHash === codeHash),
-    create: patient => save([...state.patients, patient]),
-    replace: patient => save(state.patients.map(item => item.id === patient.id ? patient : item)),
+    create: patient => save([...state.patients, patient], state.alerts),
+    replace: patient => {
+      const alerts = state.alerts.flatMap(alert => {
+        if (alert.patientId !== patient.id) return [alert];
+        if (patient.caregiver?.connectedAt !== alert.connectedAt) return [];
+        return [planLocalAlert(alert, patient, now())];
+      });
+      return save(state.patients.map(item => item.id === patient.id ? patient : item), alerts);
+    },
+    alerts: async (patient, method, body, nowMs) => {
+      if (method === 'PUT') await save(state.patients, updateLocalAlerts(state.alerts, patient, body, nowMs));
+      const settings = state.alerts.find(item => item.patientId === patient.id)?.settings;
+      return { status: 200, body: { enabled: settings?.enabled ?? false, threshold: settings?.threshold ?? 30 } };
+    },
   };
   const limited = (request: IncomingMessage) => {
     const timestamp = now();
@@ -173,9 +232,10 @@ export async function startCareServer(options: Options = {}) {
         let body: unknown;
         if (request.method === 'POST' || request.method === 'PUT') body = await readJson(request, /^\/v1\/patient\/photos\//.test(url.pathname) ? PHOTO_REQUEST_LIMIT : JSON_LIMIT);
         else if (request.headers['transfer-encoding'] || Number(request.headers['content-length'] ?? 0) > 0) throw new HttpError(400, 'This request does not accept a body.');
-        const operation = queue.then(() => routeCare(store, request.method ?? '', url.pathname, request.headers.authorization, body, now, ttl));
-        queue = operation.then(() => {}, () => {});
-        const result = await operation;
+        if (url.pathname === '/v1/health' && request.method === 'GET') {
+          respond(response, 200, { status: 'ok' }); return;
+        }
+        const result = await serialize(() => routeCare(store, request.method ?? '', url.pathname, request.headers.authorization, body, now, ttl));
         respond(response, result.status, result.body);
       } finally { queued -= 1; }
     })().catch((error: unknown) => {
@@ -192,13 +252,17 @@ export async function startCareServer(options: Options = {}) {
   });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Care server did not expose a TCP address.');
+  armTimer();
   let closing: Promise<void> | undefined;
   return {
     server,
     address,
     port: address.port,
+    processDueAlerts: () => serialize(deliverDue),
     close: () => {
       closing ??= (async () => {
+        stopping = true;
+        clearTimeout(alarm);
         const closed = new Promise<void>((resolveClosed, reject) => server.close(error => error ? reject(error) : resolveClosed()));
         await queue;
         await closed;

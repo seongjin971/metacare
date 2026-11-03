@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { careRequest, CareApiError } from '../../shared/care-api';
@@ -6,9 +6,12 @@ import { downloadSharedPhoto } from '../../shared/care-photo-parts';
 import { clearSession, readSession, writeSession } from '../../shared/care-session';
 import type { CaregiverData, CaregiverSession } from '../../shared/care-types';
 import { isSharedVisit } from '../../shared/care-visit';
+import { careClock, isCareTimeZone } from '../../shared/care-clock';
 import { localDateKey } from '../../src/domain';
 import { makeDemoData } from './demo';
 import { OVERDUE_THRESHOLDS, type OverdueThreshold } from './care-status';
+import { useOverdueAlerts } from './use-overdue-alerts';
+import { clearDeliveredAlerts } from './alert-device';
 
 const SESSION_KEY = 'metacare.caregiver.session.v1';
 const CACHE_KEY = 'metacare.caregiver.snapshot.v1';
@@ -64,6 +67,8 @@ function medicationCache(data: CaregiverData): CaregiverData {
 
 type CareContextValue = {
   ready: boolean; mode: Mode; data: CaregiverData | null; prefs: CarePreferences; now: Date;
+  alerts: ReturnType<typeof useOverdueAlerts>;
+  today: string; medicationClock?: ReturnType<typeof careClock>;
   fetchedAt: string | null; syncing: boolean; busy: boolean; networkError: boolean; error: string | null;
   connect: (code: string) => Promise<boolean>; patientName: string;
   pendingPatient: string | null;
@@ -83,7 +88,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingPatient, setPendingPatient] = useState<string | null>(null);
-  const [sessionPatientName, setSessionPatientName] = useState('');
+  const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [networkError, setNetworkError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clock, setClock] = useState(() => new Date());
@@ -95,6 +100,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const requestRef = useRef<object | null>(null);
   const mutationRef = useRef(false);
   const storageQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const alerts = useOverdueAlerts(activeSession?.token);
 
   // Serialize disk changes as well as guarding network responses. An old write can
   // never restore a token or snapshot after disconnect/revocation.
@@ -106,9 +112,10 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
 
   const clearPrivateState = useCallback(async (notice: string | null = null) => {
     epoch.current += 1;
+    clearDeliveredAlerts();
     const generation = epoch.current;
     sessionRef.current = null;
-    setSessionPatientName('');
+    setActiveSession(null);
     pendingSessionRef.current = null; setPendingPatient(null);
     modeRef.current = 'disconnected';
     requestRef.current = null;
@@ -168,7 +175,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
         if (!mounted || generation !== epoch.current) return;
         if (session && typeof session.token === 'string' && session.token.length > 0 && typeof session.cacheId === 'string' && typeof session.patientName === 'string') {
           sessionRef.current = session; modeRef.current = 'connected'; setMode('connected');
-          setSessionPatientName(session.patientName);
+          setActiveSession(session);
           try { setPrefs(preferences(savedPreferences ? JSON.parse(savedPreferences) : { caregiverName: session.caregiverName })); } catch { setPrefs({ ...defaults, caregiverName: session.caregiverName || '' }); }
           try {
             const cached = savedCache ? JSON.parse(savedCache) as Cache : null;
@@ -216,7 +223,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     if (epoch.current !== generation || pendingSessionRef.current !== session) return false;
     sessionRef.current = session; pendingSessionRef.current = null; setPendingPatient(null);
     modeRef.current = 'connected'; setMode('connected');
-    setSessionPatientName(session.patientName);
+    setActiveSession(session);
     setPrefs({ ...defaults, caregiverName: session.caregiverName });
     setData(null); setFetchedAt(null); setNetworkError(false); setError(null);
     return true;
@@ -357,8 +364,12 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   }, [clearPrivateState, photoTransfer]);
 
   const now = mode === 'demo' ? new Date(`${demoDate}T14:20:00`) : clock;
-  const patientName = data?.snapshot?.patientName.trim() || sessionPatientName.trim() || '환자';
-  return <CareContext.Provider value={{ ready, mode, data, prefs, now, fetchedAt, syncing, busy, networkError, error, connect, patientName, pendingPatient, retryConnectionStorage, cancelPendingConnection, refresh, disconnect, startDemo, exitDemo, savePreferences, loadPhoto, clearError: () => setError(null) }}>{children}</CareContext.Provider>;
+  const timeZone = data?.snapshot?.timeZone;
+  const medicationClock = useMemo(() => isCareTimeZone(timeZone) ? careClock(timeZone) : undefined, [timeZone]);
+  const today = medicationClock?.wall(now.getTime()).slice(0, 10) ?? localDateKey(now);
+  const patientName = data?.snapshot?.patientName.trim() || activeSession?.patientName.trim() || '환자';
+  const effectivePrefs = alerts.confirmed?.enabled ? { ...prefs, threshold: alerts.confirmed.threshold } : prefs;
+  return <CareContext.Provider value={{ ready, mode, data, prefs: effectivePrefs, alerts, now, today, medicationClock, fetchedAt, syncing, busy, networkError, error, connect, patientName, pendingPatient, retryConnectionStorage, cancelPendingConnection, refresh, disconnect, startDemo, exitDemo, savePreferences, loadPhoto, clearError: () => setError(null) }}>{children}</CareContext.Provider>;
 }
 
 export function useCaregiver() {
