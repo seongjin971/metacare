@@ -9,6 +9,9 @@
     "caregiver"
   ],
   "overrides": {
+    "glob@^13": "14.0.3",
+    "minimatch@^3": "$minimatch",
+    "minimatch@^10": "11.0.4",
     "@vercel/oidc": {
       "@vercel/cli-config": "0.3.6"
     }
@@ -44,6 +47,7 @@
     "@types/web-push": "3.6.4",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~58.0.4",
+    "minimatch": "file:tools/eslint-minimatch",
     "typescript": "~6.0.3"
   },
   "scripts": {

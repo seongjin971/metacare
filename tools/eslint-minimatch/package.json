@@ -1,0 +1,9 @@
+{
+  "name": "@metacare/eslint-minimatch",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.cjs",
+  "dependencies": {
+    "minimatch-engine": "npm:minimatch@11.0.4"
+  }
+}

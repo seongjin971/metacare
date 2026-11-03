@@ -3,6 +3,12 @@
 !.nvmrc
 !package.json
 !package-lock.json
+!tools
+/tools/*
+!tools/eslint-minimatch
+/tools/eslint-minimatch/*
+!tools/eslint-minimatch/package.json
+!tools/eslint-minimatch/index.cjs
 !tsconfig.json
 !vercel.json
 !api
