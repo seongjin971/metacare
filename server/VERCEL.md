@@ -11,7 +11,18 @@ Vercel에는 두 앱이 호출하는 `/v1` API를 배포합니다. 각 휴대폰
 3. `vercel deploy --prod`로 **테스트 프로젝트의 고정 도메인**을 배포합니다. 빌드 중 `npm run care:migrate`가 데이터베이스에 테이블을 준비합니다. 재배포는 같은 데이터베이스를 유지합니다. `GET /v1/health`는 준비 완료 시 `{"status":"ok"}`를 반환합니다.
 4. 환자 앱과 보호자 앱의 테스트 빌드에 같은 고정 도메인을 `EXPO_PUBLIC_CARE_URL`로 지정합니다. 값은 `https://호스트` 형태의 기본 주소이며 끝에 `/v1`을 붙이지 않습니다. EAS에서 두 앱은 별도 프로젝트입니다. 환경 변수를 바꾼 후에는 새 클라이언트 번들이 필요합니다. 새 서버에서는 환자가 공유에 동의하고 보호자를 다시 연결합니다.
 
-브라우저 미리보기에서 이 API를 사용하려면 그 미리보기의 정확한 origin을 서버의 `CARE_ALLOWED_ORIGINS`에 쉼표로 구분해 넣고 재배포하세요. 네이티브 앱에는 브라우저 CORS 설정이 필요하지 않습니다. 로컬 파일 서버와 시연 자료는 `.vercelignore`로 배포에서 제외합니다.
+공개 웹 미리보기의 두 주소는 API 프로젝트의 `CARE_WEB_PREVIEW_ORIGINS`에 쉼표로 구분하여 설정합니다. 각 주소는 스킴과 호스트까지만 입력합니다. 다른 허용 주소는 기존 `CARE_ALLOWED_ORIGINS`에서 별도로 관리합니다. 변경 후 API를 재배포하세요. 네이티브 앱에는 브라우저 CORS 설정이 필요하지 않습니다.
+
+## 웹 미리보기 배포
+
+저장소 루트에서 `npm run export:public-web`을 실행합니다. 환자용과 보호자용 웹 페이지를 각 폴더의 `.vercel/output`에 생성합니다. 기본 공유 API는 `https://metacare-sharing-test.vercel.app`이며, 다른 테스트 서버는 빌드 전에 `EXPO_PUBLIC_CARE_URL`로 지정합니다.
+
+처음 배포하는 PC에서는 각 출력 폴더를 해당 프런트엔드 프로젝트에 `vercel link`로 연결합니다. 이후에는 다음 명령으로 두 앱을 배포합니다.
+
+```powershell
+vercel deploy --prebuilt --prod --cwd .preview/public-web/patient
+vercel deploy --prebuilt --prod --cwd .preview/public-web/caregiver
+```
 
 ## 기록과 사진
 

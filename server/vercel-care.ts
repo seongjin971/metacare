@@ -138,7 +138,9 @@ type Options = { now?: () => number; allowedOrigins?: string[]; enqueue?: Enqueu
 export function createVercelCareHandler(pool: Pool, options: Options = {}) {
   const now = options.now ?? Date.now;
   const enqueue = options.enqueue ?? (async () => { throw new Error('Overdue queue not configured.'); });
-  const origins = new Set(options.allowedOrigins ?? (process.env.CARE_ALLOWED_ORIGINS ?? '').split(',').map(value => value.trim()).filter(Boolean));
+  const configuredOrigins = [process.env.CARE_ALLOWED_ORIGINS, process.env.CARE_WEB_PREVIEW_ORIGINS]
+    .flatMap(value => value?.split(',') ?? []).map(value => value.trim()).filter(Boolean);
+  const origins = new Set(options.allowedOrigins ?? configuredOrigins);
   return async function handle(request: Request): Promise<Response> {
     const headers = new Headers({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Vary': 'Origin' });
     try {

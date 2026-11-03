@@ -48,6 +48,7 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "lint": "expo lint",
     "export:web": "expo export --platform web",
+    "export:public-web": "node scripts/export-public-web.cjs",
     "care:server": "node --experimental-strip-types server/care-server.ts",
     "care:migrate": "node --experimental-strip-types server/migrate-care.ts",
     "caregiver": "npm run start --workspace @metacare/caregiver",

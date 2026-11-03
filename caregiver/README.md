@@ -2,20 +2,21 @@
 
 환자 앱과 별도로 설치하는 Expo SDK 58 앱입니다. Android 패키지와 iOS 번들 ID는 `com.metacare.caregiver`이며 보호자 전용 EAS 프로젝트 `kwaksungjins-team/metacare-caregiver`를 사용합니다.
 
-## 실행
+## 휴대폰에서 열기
 
-상위 `mobile` 폴더에서:
+1. [환자 앱의 내 관리](https://metacare-patient-test.vercel.app/settings)에서 복약 기록 공유에 동의하고 8자리 초대 코드를 만듭니다.
+2. [보호자 앱](https://metacare-caregiver-test.vercel.app/)에 코드를 입력합니다. 코드는 10분 동안 한 번만 사용할 수 있습니다. **예시로 살펴보기**를 누르면 연결하지 않고도 예시 기록을 볼 수 있습니다.
+
+## 개발 PC에서 로컬로 실행하기
+
+상위 `mobile` 폴더에서 다음 명령을 실행합니다.
 
 ```powershell
 npm ci
 node scripts/caregiver-preview.cjs
 ```
 
-- 환자: http://localhost:8081/settings
-- 보호자: http://localhost:8082/
-- 공유 API: http://127.0.0.1:8789
-
-연결 전에는 보호자 프로필을 표시하고, 연결 후에는 환자 이름도 표시합니다. 환자 앱의 ‘내 관리’에서 공유에 동의하고 8자리 코드를 만든 뒤, 보호자 앱에 코드를 입력합니다. 코드는 10분 동안 한 번만 사용할 수 있습니다. 별도 화면 예시는 연결 전 **예시로 살펴보기**로 열며, 실제 기록과 섞이지 않습니다. 기록이 없는 날짜는 '전달된 일정 없음'으로 표시하며 미복용으로 단정하지 않습니다.
+개발 PC에서만 쓰는 주소는 환자 앱 `http://localhost:8081/settings`, 보호자 앱 `http://localhost:8082/`, 공유 API `http://127.0.0.1:8789`입니다.
 
 ## 구현과 한계
 
