@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Linking, Modal, Platform, Switch, Text, TextInput, View } from 'react-native';
 import { Card, Icon, s } from '../../../src/ui';
+import { useRoleActions } from '../../../src/role-actions';
 import { MotionPressable as Pressable, useReducedMotion } from '../../../src/motion';
 import { CareButton, CarePage, colors, shortTimestamp, styles } from '../components';
 import { OVERDUE_THRESHOLDS, type OverdueThreshold } from '../care-status';
@@ -9,6 +10,7 @@ import { dialNumber } from '../patient-contact';
 import { useCaregiver } from '../store';
 
 export default function SettingsScreen() {
+  const role = useRoleActions();
   const { prefs, alerts, data, mode, patientName, savePreferences, disconnect, busy, error, exitDemo } = useCaregiver();
   const [edits, setEdits] = useState<Partial<typeof prefs>>({});
   const draft = { ...prefs, ...edits };
@@ -62,7 +64,7 @@ export default function SettingsScreen() {
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={s.label}>미기록 알림 받기</Text>
           <Text style={s.micro}>{mode === 'demo' ? '환자와 연결한 뒤 켤 수 있어요.'
-            : !supportsCareAlerts ? (Platform.OS === 'web' ? '알림을 지원하는 브라우저에서 열어 주세요. 아이폰은 홈 화면에 추가한 뒤 열어 주세요.' : '설치한 보호자 앱에서 켤 수 있어요.')
+            : !supportsCareAlerts ? (Platform.OS === 'web' ? '알림을 지원하는 브라우저에서 열어 주세요. 아이폰은 홈 화면에 추가한 뒤 열어 주세요.' : '설치한 메타케어에서 켤 수 있어요.')
             : alerts.otherDevice ? '이미 알림을 받을 곳이 등록돼 있어요. 켜면 이 기기에서 받아요.'
             : `예정 시각에서 ${prefs.threshold}분 후에도 기록이 없으면 회차마다 한 번 알려드려요.`}</Text>
         </View>
@@ -72,10 +74,10 @@ export default function SettingsScreen() {
       </View>
       {canRegister && alerts.blocked && <View style={{ gap: 8 }}>
         <Text accessibilityRole="alert" style={[s.micro, { color: colors.amber }]}>{Platform.OS === 'web'
-          ? '브라우저 또는 기기 설정에서 보호자 앱의 알림을 허용한 뒤 다시 켜 주세요.'
-          : '휴대폰 설정에서 보호자 앱의 알림을 허용한 뒤 다시 켜 주세요.'}</Text>
+          ? '브라우저 또는 기기 설정에서 메타케어의 알림을 허용한 뒤 다시 켜 주세요.'
+          : '휴대폰 설정에서 메타케어의 알림을 허용한 뒤 다시 켜 주세요.'}</Text>
         {Platform.OS !== 'web' && <CareButton title="휴대폰 설정 열기" secondary onPress={() => {
-          void Linking.openSettings().catch(() => setFormError('휴대폰 설정에서 보호자 앱의 알림을 찾아 허용해 주세요.'));
+          void Linking.openSettings().catch(() => setFormError('휴대폰 설정에서 메타케어의 알림을 찾아 허용해 주세요.'));
         }} />}
       </View>}
       {!!alerts.error && <Text accessibilityRole="alert" style={[s.micro, { color: colors.amber }]}>{alerts.error}</Text>}
@@ -86,6 +88,7 @@ export default function SettingsScreen() {
     {(formError || error) && <Text accessibilityRole="alert" style={[s.body, { color: colors.amber }]}>{formError || error}</Text>}
     {saved && <Text accessibilityLiveRegion="polite" style={[s.body, { color: colors.teal }]}>{mode === 'demo' ? '예시 설정을 적용했어요.' : '설정을 저장했어요.'}</Text>}
     <CareButton title={saving ? '저장 중…' : '설정 저장'} disabled={saving || busy || !dirty} onPress={() => void save()} />
+    {role && <CareButton title="역할 변경" secondary disabled={saving || busy || alerts.busy} onPress={role.changeRole} />}
     <View style={{ gap: 10, paddingTop: 8 }}><Text style={s.micro}>연결을 해제하면 이 기기의 공유 기록과 연락처가 지워져요. 다시 연결할 때는 새 코드가 필요해요.</Text>
       <CareButton title={mode === 'demo' ? '예시 나가기' : '환자와 연결 해제'} secondary onPress={() => mode === 'demo' ? exitDemo() : setConfirming(true)} />
     </View>

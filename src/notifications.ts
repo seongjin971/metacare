@@ -5,12 +5,13 @@ import {
   IosAuthorizationStatus,
   SchedulableTriggerInputTypes,
   cancelScheduledNotificationAsync,
+  dismissNotificationAsync,
   getAllScheduledNotificationsAsync,
+  getPresentedNotificationsAsync,
   getPermissionsAsync,
   requestPermissionsAsync,
   scheduleNotificationAsync,
   setNotificationChannelAsync,
-  setNotificationHandler,
   type NotificationPermissionsStatus,
 } from 'expo-notifications';
 import type { AppState } from './domain';
@@ -26,14 +27,29 @@ const CHANNEL_ID = 'metacare-private-reminders';
 const TEST_ID = 'metacare-test';
 let queue: Promise<unknown> = Promise.resolve();
 
-setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+function isPatientReminder(id: string) {
+  return id.startsWith(REMINDER_PREFIX) || id === TEST_ID;
+}
+
+// Wait for in-flight reconciliation before leaving the patient workspace. Preferences
+// stay on the device and are reconciled by CareProvider on the next patient launch.
+export async function suspendPatientReminders(): Promise<void> {
+  const suspension = queue.then(async () => {
+    const scheduled = await getAllScheduledNotificationsAsync().catch((error: { code?: string }) => {
+      if (error?.code === 'ERR_UNAVAILABLE') return [];
+      throw error;
+    });
+    await Promise.all(scheduled.filter(item => isPatientReminder(item.identifier))
+      .map(item => cancelScheduledNotificationAsync(item.identifier)));
+    // Some preview hosts cannot enumerate the system tray. Pending reminders
+    // have already been cancelled, so this cleanup must not block the role switch.
+    const presented = await getPresentedNotificationsAsync().catch(() => []);
+    await Promise.allSettled(presented.filter(item => isPatientReminder(item.request.identifier))
+      .map(item => dismissNotificationAsync(item.request.identifier)));
+  });
+  queue = suspension.catch(() => undefined);
+  await suspension.catch(() => { throw new Error('이 기기의 환자 일정 알림을 끄지 못했어요. 다시 시도해 주세요.'); });
+}
 
 // Permission prompts, reconciliation and tests are serialized, so a slower old
 // reconciliation cannot restore reminders that a newer state has cancelled.

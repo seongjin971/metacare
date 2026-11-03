@@ -58,8 +58,8 @@
     "export:public-web": "node scripts/export-public-web.cjs",
     "care:server": "node --experimental-strip-types server/care-server.ts",
     "care:migrate": "node --experimental-strip-types server/migrate-care.ts",
-    "caregiver": "npm run start --workspace @metacare/caregiver",
-    "caregiver:web": "npm run web --workspace @metacare/caregiver",
+    "caregiver": "expo start --go --localhost --port 8082",
+    "caregiver:web": "expo start --web --localhost --port 8082",
     "caregiver:typecheck": "npm run typecheck --workspace @metacare/caregiver"
   },
   "private": true

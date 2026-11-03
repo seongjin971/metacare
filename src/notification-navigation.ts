@@ -14,6 +14,7 @@ export function useNotificationNavigation(): void {
 
     const handleResponse = (response: Notifications.NotificationResponse) => {
       const notification = response.notification;
+      if (notification.request.content.data?.type === 'overdue-dose') return;
       const key = `${notification.request.identifier}:${notification.date}:${response.actionIdentifier}`;
       if (lastHandled.current === key) return;
 

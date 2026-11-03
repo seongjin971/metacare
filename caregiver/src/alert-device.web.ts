@@ -1,5 +1,7 @@
 import type { DevicePushToken } from 'expo-notifications';
+import Constants from 'expo-constants';
 import { careRequest } from '../../shared/care-api';
+import { clearCareAlertLaunch, takeCareAlertLaunch } from '../../src/care-alert-launch.web';
 
 export const supportsCareAlerts = typeof window !== 'undefined' && window.isSecureContext
   && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -21,9 +23,10 @@ function timeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 export async function getAlertToken(_rotated?: DevicePushToken): Promise<string> {
   if (!supportsCareAlerts || Notification.permission !== 'granted') throw new Error('브라우저의 알림을 허용해 주세요.');
+  const worker = Constants.expoConfig?.slug === 'metacare-caregiver' ? '/care-alert-worker.js?layout=standalone' : '/care-alert-worker.js';
   const [{ applicationServerKey }, registration] = await Promise.all([
     careRequest<{ applicationServerKey: string }>('/v1/web-push/key'),
-    timeout(navigator.serviceWorker.register('/care-alert-worker.js', { scope: '/' })
+    timeout(navigator.serviceWorker.register(worker, { scope: '/' })
       .then(() => navigator.serviceWorker.ready), 15000),
   ]);
   const key = Uint8Array.from(atob(applicationServerKey.replace(/-/g, '+').replace(/_/g, '/')), char => char.charCodeAt(0));
@@ -44,18 +47,11 @@ export function watchAlertToken(_onChange: (token: DevicePushToken) => void) {
 }
 
 type WebTap = { notification: { date: number; request: { identifier: string; content: { data: Record<string, unknown> } } } };
-const prefix = '#care-alert=';
 
 export function watchAlertTaps(onTap: (value: WebTap) => void) {
   function read() {
-    const hash = window.location.hash;
-    if (!hash.startsWith(prefix) || hash.length > 1024) return;
-    try {
-      const data = JSON.parse(decodeURIComponent(hash.slice(prefix.length)));
-      if (data && typeof data === 'object' && data.type === 'overdue-dose')
-        onTap({ notification: { date: 0, request: { identifier: [data.connectedAt, data.date, data.time].join('/'), content: { data } } } });
-    } catch { /* An invalid fragment is never a navigation instruction. */ }
-    consumeAlertTap();
+    const data = takeCareAlertLaunch();
+    if (data) onTap({ notification: { date: 0, request: { identifier: [data.connectedAt, data.date, data.time].join('/'), content: { data } } } });
   }
   window.addEventListener('hashchange', read);
   read();
@@ -63,7 +59,7 @@ export function watchAlertTaps(onTap: (value: WebTap) => void) {
 }
 
 export function consumeAlertTap() {
-  if (window.location.hash.startsWith(prefix)) history.replaceState(history.state, '', window.location.pathname + window.location.search);
+  clearCareAlertLaunch();
 }
 
 export function clearDeliveredAlerts() {

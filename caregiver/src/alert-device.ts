@@ -12,12 +12,10 @@ function notifications(): typeof import('expo-notifications') {
   return require('expo-notifications');
 }
 
-if (supportsCareAlerts) {
-  notifications().setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false,
-    }),
-  });
+if (supportsCareAlerts && Constants.expoConfig?.slug === 'metacare-caregiver') {
+  // The old standalone development workspace has no role picker.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('../../src/foreground-notifications').setForegroundNotificationRole('caregiver');
 }
 
 export async function hasAlertPermission(ask: boolean): Promise<boolean> {
@@ -39,7 +37,7 @@ export async function hasAlertPermission(ask: boolean): Promise<boolean> {
 
 export async function getAlertToken(devicePushToken?: DevicePushToken): Promise<string> {
   const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
-  if (!projectId) throw new Error('미기록 알림이 설정된 보호자 앱을 설치해 주세요.');
+  if (!projectId) throw new Error('미기록 알림을 지원하는 메타케어를 설치해 주세요.');
   try {
     return (await notifications().getExpoPushTokenAsync({ projectId, devicePushToken })).data;
   } catch {
@@ -54,7 +52,7 @@ export function watchAlertToken(onChange: (deviceToken: DevicePushToken) => void
 export function watchAlertTaps(onTap: (response: NotificationResponse) => void) {
   const api = notifications();
   const handle = (response: NotificationResponse) => {
-    if (response.actionIdentifier === api.DEFAULT_ACTION_IDENTIFIER) onTap(response);
+    if (response.actionIdentifier === api.DEFAULT_ACTION_IDENTIFIER && response.notification.request.content.data?.type === 'overdue-dose') onTap(response);
   };
   const subscription = api.addNotificationResponseReceivedListener(handle);
   const launch = api.getLastNotificationResponse();
@@ -63,11 +61,16 @@ export function watchAlertTaps(onTap: (response: NotificationResponse) => void) 
 }
 
 export function consumeAlertTap() {
-  notifications().clearLastNotificationResponse();
+  const api = notifications();
+  if (api.getLastNotificationResponse()?.notification.request.content.data?.type === 'overdue-dose') api.clearLastNotificationResponse();
 }
 
 export function clearDeliveredAlerts() {
   if (!supportsCareAlerts) return;
   consumeAlertTap();
-  void notifications().dismissAllNotificationsAsync().catch(() => undefined);
+  const api = notifications();
+  void api.getPresentedNotificationsAsync().then(list => Promise.all(
+    list.filter(item => item.request.content.data?.type === 'overdue-dose')
+      .map(item => api.dismissNotificationAsync(item.request.identifier))
+  )).catch(() => undefined);
 }

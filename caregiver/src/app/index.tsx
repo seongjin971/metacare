@@ -19,7 +19,7 @@ export default function TodayScreen() {
   const nextVisit = data?.snapshot?.nextVisit;
   return <CarePage title="오늘">
     <View style={{ gap: 5 }}><Text style={s.micro}>{formatDate(today, { month: 'long', day: 'numeric', weekday: 'long' })}</Text><Text accessibilityRole="header" style={s.title}>{`${patient}의 복약 기록`}</Text></View>
-    {summary.total === 0 ? <Card><Empty icon="time-outline" title="오늘 일정이 아직 전달되지 않았어요" body="환자 앱에서 일정을 설정하고 공유하면 이곳에서 확인할 수 있어요." /></Card>
+    {summary.total === 0 ? <Card><Empty icon="time-outline" title="오늘 일정이 아직 전달되지 않았어요" body="환자가 복약 일정을 설정하고 공유하면 이곳에서 확인할 수 있어요." /></Card>
       : summary.overdue > 0 ? <Card style={{ backgroundColor: colors.amberSoft, borderColor: '#EFE0C8', gap: 12 }}>
         <View style={[s.inline, { gap: 9 }]}><Icon name="alert-circle-outline" color={colors.amber} /><Text style={[s.section, { color: colors.amber }]}>{overdue.length === 1 ? `${overdue[0].label} · 미기록` : `확인이 필요한 미기록 ${overdue.length}건`}</Text></View>
         {overdue.length > 1 && <Text style={s.body}>{overdue.map(dose => `${dose.time} ${dose.label}`).join(' · ')}</Text>}

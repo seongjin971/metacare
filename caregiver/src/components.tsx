@@ -43,14 +43,14 @@ export function SyncStatus() {
       <View style={{ flex: 1, paddingTop: 5, gap: 4 }}>
         <Text accessibilityLiveRegion="polite" style={[s.micro, { color: networkError || stale ? colors.amber : colors.teal }]}>{networkError ? '오프라인 또는 연결 불안정' : !fetchedAt ? '연결 확인 중' : stale ? '최근 기록 확인 필요' : '서버 연결됨'}</Text>
         <Text style={s.micro}>최근 수신 {shortTimestamp(fetchedAt)}</Text>
-        <Text style={s.micro}>환자 앱 갱신 {shortTimestamp(data?.snapshot?.updatedAt)}</Text>
+        <Text style={s.micro}>환자 기록 갱신 {shortTimestamp(data?.snapshot?.updatedAt)}</Text>
       </View>
       <Pressable accessibilityRole="button" accessibilityLabel="공유 기록 새로고침" accessibilityState={{ disabled: syncing }} disabled={syncing} onPress={() => void refresh()} style={styles.refresh}>
         {syncing ? <ActivityIndicator size="small" color={colors.teal} /> : <Icon name="refresh-outline" color={colors.teal} size={18} />}
         <Text style={{ color: colors.teal, fontSize: 13, fontWeight: '600' }}>{syncing ? '확인 중' : '새로고침'}</Text>
       </Pressable>
     </View>
-    {(networkError || stale) && <Text style={s.micro}>마지막으로 받은 정보예요. 환자 앱의 기록이 아직 전달되지 않았을 수 있어요.</Text>}
+    {(networkError || stale) && <Text style={s.micro}>마지막으로 받은 정보예요. 환자의 새 기록이 아직 전달되지 않았을 수 있어요.</Text>}
     {error && !networkError && <Text accessibilityRole="alert" style={[s.micro, { color: colors.amber }]}>{error}</Text>}
   </View>;
 }

@@ -13,8 +13,8 @@ import { OVERDUE_THRESHOLDS, type OverdueThreshold } from './care-status';
 import { useOverdueAlerts } from './use-overdue-alerts';
 import { ALERT_RECEIPT_KEY } from './device-alert-setting';
 import { clearDeliveredAlerts } from './alert-device';
+import { CAREGIVER_SESSION_KEY as SESSION_KEY } from './suspend-alerts';
 
-const SESSION_KEY = 'metacare.caregiver.session.v1';
 const CACHE_KEY = 'metacare.caregiver.snapshot.v1';
 const PREFS_KEY = 'metacare.caregiver.preferences.v1';
 type Mode = 'disconnected' | 'connected' | 'demo';
@@ -50,8 +50,8 @@ function validData(value: unknown): value is CaregiverData {
 
 function messageFor(error: unknown, fallback: string): string {
   if (error instanceof CareApiError) {
-    if (error.status === 400 || error.status === 404 || error.status === 410) return '연결 코드를 다시 확인해 주세요. 만료됐다면 환자 앱에서 새 코드를 만들어 주세요.';
-    if (error.status === 409) return '이미 사용된 연결 코드예요. 환자 앱에서 새 코드를 만들어 주세요.';
+    if (error.status === 400 || error.status === 404 || error.status === 410) return '연결 코드를 다시 확인해 주세요. 만료됐다면 환자 휴대폰에서 새 코드를 만들어 주세요.';
+    if (error.status === 409) return '이미 사용된 연결 코드예요. 환자 휴대폰에서 새 코드를 만들어 주세요.';
     if (error.status === 429) return '요청이 많아요. 잠시 후 다시 시도해 주세요.';
     if (!error.status || error.status >= 500) return '서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.';
   }
@@ -69,6 +69,7 @@ function medicationCache(data: CaregiverData): CaregiverData {
 type CareContextValue = {
   ready: boolean; mode: Mode; data: CaregiverData | null; prefs: CarePreferences; now: Date;
   alerts: ReturnType<typeof useOverdueAlerts>;
+  offerAlerts: boolean; dismissAlertOffer: () => void;
   today: string; medicationClock?: ReturnType<typeof careClock>;
   fetchedAt: string | null; syncing: boolean; busy: boolean; networkError: boolean; error: string | null;
   connect: (code: string) => Promise<boolean>; patientName: string;
@@ -82,6 +83,7 @@ const CareContext = createContext<CareContextValue | null>(null);
 
 export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [offerAlerts, setOfferAlerts] = useState(false);
   const [mode, setMode] = useState<Mode>('disconnected');
   const [data, setData] = useState<CaregiverData | null>(null);
   const [prefs, setPrefs] = useState<CarePreferences>({ ...defaults });
@@ -114,6 +116,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const clearPrivateState = useCallback(async (notice: string | null = null) => {
     epoch.current += 1;
     clearDeliveredAlerts();
+    setOfferAlerts(false);
     const generation = epoch.current;
     sessionRef.current = null;
     setActiveSession(null);
@@ -226,6 +229,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     sessionRef.current = session; pendingSessionRef.current = null; setPendingPatient(null);
     modeRef.current = 'connected'; setMode('connected');
     setActiveSession(session);
+    setOfferAlerts(true);
     setPrefs({ ...defaults, caregiverName: session.caregiverName });
     setData(null); setFetchedAt(null); setNetworkError(false); setError(null);
     return true;
@@ -253,7 +257,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     try {
       await careRequest('/v1/caregiver/connection', { method: 'DELETE', token: session.token });
       if (epoch.current !== generation) return false;
-      await clearPrivateState('연결을 취소했어요. 다시 연결하려면 환자 앱에서 새 코드를 받아 주세요.');
+      await clearPrivateState('연결을 취소했어요. 다시 연결하려면 환자 휴대폰에서 새 코드를 받아 주세요.');
       return true;
     } catch (cause) {
       if (epoch.current !== generation) return false;
@@ -262,7 +266,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
       }
       // Keep the only received credential until either storage or rollback
       // succeeds. A failed rollback must not return to an empty connect form.
-      setError('연결 취소에 실패했어요. 네트워크를 확인하고 다시 시도해 주세요. 계속 실패하면 환자 앱의 내 관리 → 보호자 연결에서 연결을 해제해 주세요.');
+      setError('연결 취소에 실패했어요. 네트워크를 확인하고 다시 시도해 주세요. 계속 실패하면 환자 휴대폰의 내 관리 → 보호자 연결에서 연결을 해제해 주세요.');
       return false;
     } finally {
       if (epoch.current === generation) { mutationRef.current = false; setBusy(false); }
@@ -371,7 +375,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
   const today = medicationClock?.wall(now.getTime()).slice(0, 10) ?? localDateKey(now);
   const patientName = data?.snapshot?.patientName.trim() || activeSession?.patientName.trim() || '환자';
   const effectivePrefs = alerts.confirmed?.enabled ? { ...prefs, threshold: alerts.confirmed.threshold } : prefs;
-  return <CareContext.Provider value={{ ready, mode, data, prefs: effectivePrefs, alerts, now, today, medicationClock, fetchedAt, syncing, busy, networkError, error, connect, patientName, pendingPatient, retryConnectionStorage, cancelPendingConnection, refresh, disconnect, startDemo, exitDemo, savePreferences, loadPhoto, clearError: () => setError(null) }}>{children}</CareContext.Provider>;
+  return <CareContext.Provider value={{ ready, mode, data, prefs: effectivePrefs, alerts, offerAlerts, dismissAlertOffer: () => setOfferAlerts(false), now, today, medicationClock, fetchedAt, syncing, busy, networkError, error, connect, patientName, pendingPatient, retryConnectionStorage, cancelPendingConnection, refresh, disconnect, startDemo, exitDemo, savePreferences, loadPhoto, clearError: () => setError(null) }}>{children}</CareContext.Provider>;
 }
 
 export function useCaregiver() {

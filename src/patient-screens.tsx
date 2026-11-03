@@ -21,6 +21,7 @@ import { savePhotoRecord } from './save-photo-record';
 import { FadeIn, MotionPressable as Pressable } from './motion';
 import { CaregiverLinkCard } from './caregiver-link';
 import { HospitalContactCard } from './hospital-contact-card';
+import { useRoleActions } from './role-actions';
 
 function TextAction({ label, onPress, accessibilityLabel }: { label: string; onPress: () => void; accessibilityLabel?: string }) {
   return (
@@ -207,6 +208,7 @@ function ReminderRow({ title, values, enabled, busy, onEdit, onToggle }: {
 }
 
 export function SettingsScreen() {
+  const roleActions = useRoleActions();
   const { state, update, confirm, notify, notificationStatus, setNotificationStatus, now } = useCare();
   const [busy, setBusy] = useState(false);
   const [editingReminder, setEditingReminder] = useState<ReminderKind | null>(null);
@@ -299,6 +301,7 @@ export function SettingsScreen() {
             <Text style={s.muted}>기기 설정에 따라 알림이 지연될 수 있습니다.</Text>
           </Disclosure>
         )}
+        {roleActions && <TextAction label="역할 변경" onPress={roleActions.changeRole} />}
       </View>
       {editingMedication && <MedicationSchedulePicker
         value={state.medicationSchedule}

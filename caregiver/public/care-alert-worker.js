@@ -24,7 +24,8 @@ self.addEventListener('notificationclick', event => {
   event.notification.close();
   const data = dose(event.notification.data);
   if (!data) return;
-  const url = new URL('/', self.location.origin);
+  const legacy = new URL(self.location.href).searchParams.get('layout') === 'standalone';
+  const url = new URL(legacy ? '/' : '/caregiver', self.location.origin);
   // The fragment is never sent to the web host. The app checks the current pairing before opening history.
   url.hash = 'care-alert=' + encodeURIComponent(JSON.stringify(data));
   event.waitUntil((async () => {

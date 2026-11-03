@@ -6,6 +6,7 @@ import { clearSession, readSession, writeSession } from '../../shared/care-sessi
 import { getAlertToken, hasAlertPermission, supportsCareAlerts, watchAlertToken } from './alert-device';
 import { OVERDUE_THRESHOLDS, type OverdueThreshold } from './care-status';
 import { ALERT_RECEIPT_KEY, reconcileDeviceAlert, type AlertReceipt, type RemoteAlertSetting } from './device-alert-setting';
+import { CAREGIVER_SESSION_KEY, serializeAlertWrite } from './suspend-alerts';
 
 const endpoint = '/v1/caregiver/alerts';
 const unavailable = '알림 설정을 확인하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.';
@@ -36,19 +37,22 @@ export function useOverdueAlerts(token?: string, cacheId?: string) {
     return next;
   }, []);
 
-  const put = useCallback(async (threshold: OverdueThreshold, target: string | null, expectedRegistrationId: string | null) => {
+  const put = useCallback((threshold: OverdueThreshold, target: string | null, expectedRegistrationId: string | null) => serializeAlertWrite(async () => {
     if (!token || !cacheId || latest.current !== token) throw new Error('환자 연결을 확인해 주세요.');
     const destination = target?.startsWith('webpush:')
       ? { webPushSubscription: target.slice('webpush:'.length) } : { expoPushToken: target };
     const body = { enabled: !!target, threshold, expectedRegistrationId,
       ...(target && { ...destination, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) };
     const remote = settings(await careRequest<RemoteAlertSetting>(endpoint, { method: 'PUT', token, body }));
-    if (latest.current !== token) throw new Error('환자 연결이 바뀌었어요.');
+    // Commit the receipt with its server write. A concurrent role change waits for
+    // both, so a successful in-flight registration can still be switched off.
+    if (latest.current !== token && (await readSession<{ cacheId: string }>(CAREGIVER_SESSION_KEY))?.cacheId !== cacheId)
+      throw new Error('환자 연결이 바뀌었어요.');
     if (remote.registrationId && remote.enabled) {
       await writeSession(ALERT_RECEIPT_KEY, { cacheId, registrationId: remote.registrationId } satisfies AlertReceipt);
     } else await clearSession(ALERT_RECEIPT_KEY);
     return remote;
-  }, [token, cacheId]);
+  }), [token, cacheId]);
 
   const refresh = useCallback((rotated?: DevicePushToken) => serialize(async () => {
     if (!token || !cacheId || latest.current !== token || !supportsCareAlerts) return;

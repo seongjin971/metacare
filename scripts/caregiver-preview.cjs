@@ -33,7 +33,7 @@ function listening(port) {
     fs.closeSync(output); fs.closeSync(error);
     console.log(`${label}: started (PID ${child.pid}).`);
   }
-  console.log('Patient: http://localhost:8081/settings');
-  console.log('Caregiver: http://localhost:8082');
+  console.log('MetaCare: http://localhost:8081 (choose a role on first launch)');
+  console.log('Second device preview: http://localhost:8082 (same app, separate browser storage)');
   console.log('Local preview only. No APK is built. Logs: .preview/caregiver');
 })();

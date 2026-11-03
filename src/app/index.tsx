@@ -1,9 +1,11 @@
-import React from 'react';
-import { useLocalSearchParams } from 'expo-router';
-import { MedicationScreen } from '../patient-screens';
+import { Redirect, useLocalSearchParams } from 'expo-router';
+import { useAppRole } from '../app-role';
+import { RolePicker } from '../role-picker';
 
-export default function MedicationRoute() {
+export default function Home() {
+  const { role, choose, busy, error } = useAppRole();
   const { reminder } = useLocalSearchParams<{ reminder?: string }>();
-  // Opening a new reminder resets selected history to today's recording screen.
-  return <MedicationScreen key={reminder ?? 'default'} />;
+  if (!role) return <RolePicker current={null} choosing={busy} error={error} onSelect={choose} />;
+  if (role === 'caregiver') return <Redirect href="/caregiver" />;
+  return <Redirect href={typeof reminder === 'string' ? { pathname: '/medication', params: { reminder } } : '/medication'} />;
 }

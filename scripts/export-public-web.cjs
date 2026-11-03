@@ -8,7 +8,7 @@ const output = path.join(root, '.preview', 'public-web');
 const apiUrl = configuredCareEndpoint(
   process.env.EXPO_PUBLIC_CARE_URL || 'https://metacare-sharing-test.vercel.app', false,
 );
-const apps = { patient: root, caregiver: path.join(root, 'caregiver') };
+const stages = ['patient', 'caregiver'].map(name => path.join(output, name));
 const buildOutput = {
   version: 3,
   routes: [
@@ -17,25 +17,34 @@ const buildOutput = {
   ],
 };
 
-for (const [name, project] of Object.entries(apps)) {
-  const stage = path.join(output, name);
+// Existing links must retain their origin (stored pairings and Web Push subscriptions).
+// Both hosts serve exactly the same application and use the same router.
+const [primary] = stages;
+const primaryStatic = path.join(primary, '.vercel', 'output', 'static');
+execFileSync(process.execPath, [
+  require.resolve('expo/bin/cli', { paths: [root] }), 'export', '--platform', 'web', '--output-dir', primaryStatic,
+], {
+  cwd: root,
+  env: { ...process.env, NODE_ENV: 'production', EXPO_NO_DOTENV: '1', EXPO_PUBLIC_CARE_URL: apiUrl },
+  stdio: 'inherit',
+});
+const index = path.join(primaryStatic, 'index.html');
+fs.accessSync(path.join(primaryStatic, 'care-alert-worker.js'), fs.constants.R_OK);
+fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace('lang="en"', 'lang="ko"').replace('</head>',
+  '<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/care-icon-192.png"><meta name="theme-color" content="#3066e9"></head>'));
+for (const stage of stages) {
   const build = path.join(stage, '.vercel', 'output');
   // A prebuilt upload sends only this build output. Keep Vercel's project link outside it.
   const dest = path.join(build, 'static');
   fs.mkdirSync(build, { recursive: true });
   fs.writeFileSync(path.join(stage, '.vercelignore'), '/*\n');
-  execFileSync(process.execPath, [
-    require.resolve('expo/bin/cli', { paths: [project] }), 'export', '--platform', 'web', '--output-dir', dest,
-  ], {
-    cwd: project,
-    env: { ...process.env, NODE_ENV: 'production', EXPO_NO_DOTENV: '1', EXPO_PUBLIC_CARE_URL: apiUrl },
-    stdio: 'inherit',
-  });
-  fs.accessSync(path.join(dest, 'index.html'), fs.constants.R_OK);
-  if (name === 'caregiver') {
-    const index = path.join(dest, 'index.html');
-    fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace('lang="en"', 'lang="ko"').replace('</head>',
-      '<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/care-icon-192.png"><meta name="theme-color" content="#208472"></head>'));
+  if (dest !== primaryStatic) {
+    // Replace only this generated output, so superseded chunks never ship on an alias.
+    const expected = path.resolve(output, 'caregiver', '.vercel', 'output', 'static');
+    if (path.resolve(dest) !== expected || fs.existsSync(dest) && fs.realpathSync.native(dest) !== expected)
+      throw new Error('Unexpected web export directory.');
+    fs.rmSync(dest, { recursive: true, force: true });
+    fs.cpSync(primaryStatic, dest, { recursive: true });
   }
   fs.writeFileSync(path.join(build, 'config.json'), JSON.stringify(buildOutput, null, 2) + '\n');
 }

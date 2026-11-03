@@ -31,7 +31,7 @@
     },
     "web": {
       "favicon": "./assets/metacare-icon.png",
-      "name": "메타케어 · 건강한 일상을 함께",
+      "name": "메타케어",
       "bundler": "metro"
     },
     "plugins": [
@@ -48,7 +48,7 @@
       [
         "expo-notifications",
         {
-          "enableRemoteNotifications": false,
+          "defaultChannel": "caregiver-overdue",
           "color": "#3066e9"
         }
       ],

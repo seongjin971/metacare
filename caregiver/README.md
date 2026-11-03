@@ -1,11 +1,12 @@
 # 메타케어 보호자
 
-환자 앱과 별도로 설치하는 Expo SDK 58 앱입니다. Android 패키지와 iOS 번들 ID는 `com.metacare.caregiver`이며 보호자 전용 EAS 프로젝트 `kwaksungjins-team/metacare-caregiver`를 사용합니다.
+메타케어에서 **보호자예요**를 선택하면 열리는 화면입니다. 통합 앱은 상위 `mobile` 프로젝트에서 실행하고 빌드합니다. 이 워크스페이스의 별도 앱 설정은 이전 보호자 전용 설치본 호환용입니다.
 
 ## 휴대폰에서 열기
 
-1. [환자 앱의 내 관리](https://metacare-patient-test.vercel.app/settings)에서 복약 기록 공유에 동의하고 8자리 초대 코드를 만듭니다.
-2. [보호자 앱](https://metacare-caregiver-test.vercel.app/)에 코드를 입력합니다. 코드는 10분 동안 한 번만 사용할 수 있습니다. **예시로 살펴보기**를 누르면 연결하지 않고도 예시 기록을 볼 수 있습니다.
+1. 환자와 보호자가 각자 [메타케어](https://metacare-patient-test.vercel.app/)를 열고 처음 한 번 역할을 선택합니다.
+2. 환자는 **내 관리 → 보호자 연결**에서 공유에 동의하고 8자리 초대 코드를 만듭니다.
+3. 보호자는 **환자 연결**에 코드를 입력합니다. 코드는 10분 동안 한 번만 사용할 수 있습니다. **예시로 살펴보기**에서는 연결 없이 예시 기록을 볼 수 있습니다.
 
 ## 개발 PC에서 로컬로 실행하기
 
@@ -16,7 +17,7 @@ npm ci
 node scripts/caregiver-preview.cjs
 ```
 
-개발 PC에서만 쓰는 주소는 환자 앱 `http://localhost:8081/settings`, 보호자 앱 `http://localhost:8082/`, 공유 API `http://127.0.0.1:8789`입니다.
+개발 PC에서 통합 앱을 `http://localhost:8081/`로 엽니다. 환자와 보호자를 동시에 확인하려면 브라우저 프로필을 두 개 사용합니다. 공유 API는 `http://127.0.0.1:8789`를 사용합니다.
 
 ## 구현과 한계
 
@@ -33,7 +34,7 @@ node scripts/caregiver-preview.cjs
 
 공통 UI·모션·달력은 상위 `src`를 재사용하고, 최소 공유 형식·통신·기기 인증 저장은 상위 `shared`에 있습니다. 공유 서버는 `server/care-server.ts`이며 기록 파일은 git/EAS 업로드에서 제외합니다.
 
-Android 푸시 빌드에는 보호자 패키지로 등록한 Firebase Android 앱의 `google-services.json` 파일이 필요합니다. 빌드 환경의 파일 변수 `CAREGIVER_GOOGLE_SERVICES_FILE`에 설정하고, 같은 Firebase 프로젝트의 FCM v1 서비스 계정을 보호자 EAS 프로젝트의 Android 푸시 자격 증명에 등록합니다. iOS는 해당 번들 ID의 APNs 키를 설정합니다. [Expo 푸시 설정](https://docs.expo.dev/push-notifications/push-notifications-setup/)
+Android 설치본의 푸시에는 빌드할 앱의 Android 패키지와 일치하는 Firebase 앱 설정 및 해당 EAS 프로젝트의 FCM v1 발송 자격 증명이 필요합니다. iOS 설치본은 해당 번들 ID의 APNs 키를 설정합니다. [Expo 푸시 설정](https://docs.expo.dev/push-notifications/push-notifications-setup/)
 
 ## 검증
 

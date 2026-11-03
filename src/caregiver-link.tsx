@@ -320,14 +320,14 @@ function InviteCodeHandoff({ invite, expiresIn }: { invite: Invitation; expiresI
         await navigator.clipboard.writeText(invite.code);
         setFeedback('연결 코드를 복사했어요.');
       } else {
-        await Share.share({ message: `메타케어 보호자 앱에 연결 코드 ${invite.code}를 입력해 주세요.` });
+        await Share.share({ message: `메타케어에서 ‘보호자예요’를 선택하고 연결 코드 ${invite.code}를 입력해 주세요.` });
       }
     } catch { setFeedback('코드 8자리를 보호자에게 직접 알려주세요.'); }
   };
   return <>
     <Text selectable accessibilityLabel={`연결 코드 ${invite.code.split('').join(' ')}`} style={styles.code}>{invite.code.slice(0, 4)} {invite.code.slice(4)}</Text>
     <Text style={s.muted}>{Math.floor(expiresIn / 60)}분 {expiresIn % 60}초 남음 · 한 번만 사용할 수 있어요.</Text>
-    <Text style={s.body}>연결할 보호자에게만 알려주세요. 보호자 앱에 코드를 입력하면 여기에 이름이 표시돼요.</Text>
+    <Text style={s.body}>연결할 보호자에게만 알려주세요. 보호자가 자기 기기에 코드를 입력하면 여기에 이름이 표시돼요.</Text>
     {canHandoff && <Button title={web ? '코드 복사' : '보호자에게 코드 전달'} icon={web ? 'copy-outline' : 'share-outline'} onPress={() => void handoff()} />}
     {!!feedback && <Text accessibilityLiveRegion="polite" style={s.muted}>{feedback}</Text>}
   </>;
@@ -406,7 +406,7 @@ function SharingConsentForm({ ready, busy, invite }: { ready: boolean; busy: boo
   // This form remounts after disconnect or rejected credentials, so consent is never preselected.
   const [consented, setConsented] = useState(false);
   return <>
-    <Text style={s.body}>보호자 앱과 연결하면 내 복약 상황을 함께 확인할 수 있어요.</Text>
+    <Text style={s.body}>보호자와 연결하면 내 복약 기록을 함께 확인할 수 있어요.</Text>
     <Text style={s.muted}>이름·복약 일정·최근 90일 복용 여부와 기록 시간·최근 약봉투 사진 최대 30장을 서버와 연결한 보호자에게 공유합니다. 연결 코드를 만들 때 기록을 먼저 전송하며, 앱을 사용하는 동안 새 기록을 동기화합니다. 언제든 연결을 해제할 수 있어요.</Text>
     <View style={styles.consent}>
       <Text style={[s.body, styles.action]}>위 정보의 공유에 동의합니다</Text>

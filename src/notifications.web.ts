@@ -1,5 +1,7 @@
 import type { AppState } from './domain';
 
+export async function suspendPatientReminders(): Promise<void> {}
+
 export type NotificationSyncResult = {
   status: 'ready' | 'denied' | 'unsupported' | 'error' | 'disabled';
   message: string;
