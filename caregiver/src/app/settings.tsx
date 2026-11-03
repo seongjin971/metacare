@@ -4,11 +4,13 @@ import { Card, Icon, s } from '../../../src/ui';
 import { MotionPressable as Pressable, useReducedMotion } from '../../../src/motion';
 import { CareButton, CarePage, colors, shortTimestamp, styles } from '../components';
 import { OVERDUE_THRESHOLDS } from '../care-status';
+import { dialNumber } from '../patient-contact';
 import { useCaregiver } from '../store';
 
 export default function SettingsScreen() {
   const { prefs, data, mode, patientName, savePreferences, disconnect, busy, error, exitDemo } = useCaregiver();
-  const [draft, setDraft] = useState(prefs);
+  const [edits, setEdits] = useState<Partial<typeof prefs>>({});
+  const draft = { ...prefs, ...edits };
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -18,15 +20,14 @@ export default function SettingsScreen() {
   const save = async () => {
     setSaved(false); setFormError(null);
     const phone = draft.phone.trim();
-    const digits = phone.replace(/\D/g, '');
-    if (phone && (!/^\+?[\d ()-]+$/.test(phone) || digits.length < 7 || digits.length > 15)) { setFormError('전화번호를 확인해 주세요. 숫자 7~15자리와 공백, 괄호, 하이픈을 사용할 수 있어요.'); return; }
+    if (phone && !dialNumber(phone)) { setFormError('전화번호를 확인해 주세요. 숫자 7~15자리와 공백, 괄호, 하이픈을 사용할 수 있어요.'); return; }
     setSaving(true);
     const normalized = { ...draft, phone, patientNickname: draft.patientNickname.trim() };
     const success = await savePreferences(normalized);
-    if (success) setDraft(normalized);
+    if (success) setEdits({});
     setSaving(false); setSaved(success);
   };
-  const update = (patch: Partial<typeof draft>) => { setDraft(value => ({ ...value, ...patch })); setSaved(false); setFormError(null); };
+  const update = (patch: Partial<typeof draft>) => { setEdits(value => ({ ...value, ...patch })); setSaved(false); setFormError(null); };
   return <CarePage title="관리">
     <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
       <Icon name="person-circle-outline" size={44} color={colors.teal} />

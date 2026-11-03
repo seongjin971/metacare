@@ -13,7 +13,7 @@ export default function HistoryScreen() {
   const { data, prefs, now } = useCaregiver();
   const today = localDateKey(now);
   const [selectedDate, setSelectedDate] = useState(today);
-  const [month, setMonth] = useState(startOfMonth(today));
+  const month = startOfMonth(selectedDate);
   const [photo, setPhoto] = useState<SharedDose | null>(null);
   const groups = useMemo(() => {
     const rows = new Map<string, SharedDose[]>();
@@ -23,7 +23,10 @@ export default function HistoryScreen() {
   }, [data]);
   const doses = groups.get(selectedDate) ?? [];
   return <CarePage title="기록">
-    <MonthCalendar compact month={month} selectedDate={selectedDate} today={today} onSelectDate={setSelectedDate} onChangeMonth={amount => setMonth(value => shiftMonth(value, amount))} onToday={() => { setMonth(startOfMonth(today)); setSelectedDate(today); }} getDayInfo={date => {
+    <MonthCalendar compact month={month} selectedDate={selectedDate} today={today} onSelectDate={setSelectedDate} onChangeMonth={amount => {
+      const next = shiftMonth(month, amount);
+      setSelectedDate(next === startOfMonth(today) ? today : next);
+    }} onToday={() => setSelectedDate(today)} getDayInfo={date => {
       const count = summarizeDoses(groups.get(date) ?? [], prefs.threshold, now);
       return { accessibilityLabel: count.total ? `${count.recorded}회 기록됨, ${count.overdue}회 미기록` : '전달된 일정 없음', markers: [
         ...(count.recorded ? [{ text: '●', color: colors.teal }] : []),

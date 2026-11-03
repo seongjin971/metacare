@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AppState as NativeAppState, StyleSheet, Switch, Text, View } from 'react-native';
+import { AppState as NativeAppState, Platform, Share, StyleSheet, Switch, Text, View } from 'react-native';
 import { careRequest, CareApiError } from '../shared/care-api';
 import { clearSession, readSession, writeSession } from '../shared/care-session';
 import type { PatientConnection as Connection, PatientSnapshotUpdate, PhotoTransfer } from '../shared/care-types';
@@ -307,17 +307,45 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
   return <SharingContext.Provider value={{ ready, busy, stopping, session, connection, error, photosPending, clock, invite, disconnect, setVisitSharing, retry: refresh }}>{children}</SharingContext.Provider>;
 }
 
-export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: string; body: string; label: string; onConfirm: () => void }) => void }) {
+function InviteCodeHandoff({ invite, expiresIn }: { invite: Invitation; expiresIn: number }) {
+  const [feedback, setFeedback] = useState('');
+  const web = Platform.OS === 'web';
+  const canHandoff = !web || (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function');
+  const handoff = async () => {
+    if (Date.parse(invite.expiresAt) <= Date.now()) { setFeedback('코드가 만료됐어요. 새 코드를 만들어 주세요.'); return; }
+    setFeedback('');
+    try {
+      if (web) {
+        await navigator.clipboard.writeText(invite.code);
+        setFeedback('연결 코드를 복사했어요.');
+      } else {
+        await Share.share({ message: `메타케어 보호자 앱에 연결 코드 ${invite.code}를 입력해 주세요.` });
+      }
+    } catch { setFeedback('코드 8자리를 보호자에게 직접 알려주세요.'); }
+  };
+  return <>
+    <Text selectable accessibilityLabel={`연결 코드 ${invite.code.split('').join(' ')}`} style={styles.code}>{invite.code.slice(0, 4)} {invite.code.slice(4)}</Text>
+    <Text style={s.muted}>{Math.floor(expiresIn / 60)}분 {expiresIn % 60}초 남음 · 한 번만 사용할 수 있어요.</Text>
+    <Text style={s.body}>연결할 보호자에게만 알려주세요. 보호자 앱에 코드를 입력하면 여기에 이름이 표시돼요.</Text>
+    {canHandoff && <Button title={web ? '코드 복사' : '보호자에게 코드 전달'} icon={web ? 'copy-outline' : 'share-outline'} onPress={() => void handoff()} />}
+    {!!feedback && <Text accessibilityLiveRegion="polite" style={s.muted}>{feedback}</Text>}
+  </>;
+}
+
+export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: string; body: string; label: string; cancelLabel?: string; destructive?: boolean; onConfirm: () => void }) => void }) {
   const sharing = useContext(SharingContext);
   if (!sharing) throw new Error('PatientSharingProvider required');
   const { ready, busy, stopping, session, connection, error, photosPending, clock, invite, disconnect, setVisitSharing, retry } = sharing;
   const connected = session?.active === true && !!connection?.caregiverName && !!connection.connectedAt;
+  const established = connected || session?.wasConnected === true;
   const waiting = session?.active === true;
   const expiresIn = session?.invite ? Math.max(0, Math.ceil((Date.parse(session.invite.expiresAt) - clock) / 1000)) : 0;
   const stop = () => confirm({
-    title: connected ? '보호자 연결을 해제할까요?' : '보호자 초대를 취소할까요?',
+    title: established ? '보호자 연결을 해제할까요?' : '보호자 초대를 취소할까요?',
     body: '보호자의 접근 권한과 연결 코드를 취소하고 서버에 공유된 기록·사진을 삭제합니다. 기기에 저장된 내 기록은 유지됩니다.',
-    label: connected ? '연결 해제' : '초대 취소',
+    label: established ? '연결 해제' : '초대 취소',
+    cancelLabel: established ? '연결 유지' : '초대 유지',
+    destructive: true,
     onConfirm: () => void disconnect(),
   });
   return <Card>
@@ -348,18 +376,14 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
         <View style={styles.action}><Button title={stopping ? '해제 중…' : '연결 해제'} secondary small disabled={stopping} onPress={stop} /></View>
       </View>
     </> : waiting ? <>
-      <Text style={s.body}>보호자 연결 코드</Text>
-      {session.wasConnected ? <Text style={s.body}>보호자 연결 상태를 확인하고 있어요. 인터넷 연결 후 다시 확인해 주세요.</Text> : session.invite && expiresIn > 0 ? <>
-        <Text selectable accessibilityLabel={`연결 코드 ${session.invite.code.split('').join(' ')}`} style={styles.code}>{session.invite.code.slice(0, 4)} {session.invite.code.slice(4)}</Text>
-        <Text style={s.muted}>{Math.floor(expiresIn / 60)}분 {expiresIn % 60}초 남음 · 한 번만 사용할 수 있어요.</Text>
-        <Text style={s.body}>보호자 앱에서 이 코드를 입력해 주세요. 믿을 수 있는 보호자에게만 전달해 주세요.</Text>
-      </> : <Text style={s.body}>{session.invite ? '연결 코드가 만료됐어요. 새 코드를 만들어 주세요.' : '아직 연결 코드가 없어요. 다시 시도해 주세요.'}</Text>}
-      <Text style={s.muted}>보호자가 연결하기 전에는 기록을 계속 전송하지 않아요. 약봉투 사진은 연결 후 전송돼요.</Text>
-      <View style={styles.actions}>
-        <View style={styles.action}><Button title={busy ? '확인 중…' : '코드 다시 만들기'} secondary small disabled={busy} onPress={() => void invite()} /></View>
-        <View style={styles.action}><Button title={stopping ? '취소 중…' : '초대 취소'} secondary small disabled={stopping} onPress={stop} /></View>
-      </View>
-      <Button title="연결 상태 확인" secondary small disabled={busy} onPress={() => void retry()} />
+      {session.wasConnected ? <Text style={s.body}>보호자 연결 상태를 확인하고 있어요.</Text>
+        : session.invite && expiresIn > 0 ? <InviteCodeHandoff key={session.invite.code} invite={session.invite} expiresIn={expiresIn} />
+        : <>
+          <Text style={s.body}>{session.invite ? '연결 코드가 만료됐어요.' : busy ? '연결 코드를 만드는 중이에요.' : '아직 사용할 수 있는 연결 코드가 없어요.'}</Text>
+          {(!busy || session.invite) && <Button title={busy ? '코드 만드는 중…' : '새 연결 코드 만들기'} disabled={busy} onPress={() => void invite()} />}
+        </>}
+      {(session.wasConnected || (error && session.invite && expiresIn > 0)) && <Button title="연결 상태 다시 확인" secondary small disabled={busy} onPress={() => void retry()} />}
+      <Button title={established ? '연결 해제' : '초대 취소'} secondary small disabled={stopping} onPress={stop} />
     </> : <SharingConsentForm key={session?.token ?? 'new'} ready={ready} busy={busy || stopping} invite={invite} />}
     {session?.active && session.wasConnected && !session.pendingRevoke && <>
       <View style={styles.consent}>

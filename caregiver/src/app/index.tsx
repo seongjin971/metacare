@@ -1,39 +1,31 @@
 import React, { useState } from 'react';
-import { Linking, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { Text, View } from 'react-native';
 import { Card, Empty, Icon, s } from '../../../src/ui';
 import { formatDate, localDateKey } from '../../../src/domain';
 import type { SharedDose } from '../../../shared/care-types';
 import { isUpcomingVisit } from '../../../shared/care-visit';
-import { CareButton, CarePage, DoseList, PhotoViewer, SyncStatus, colors } from '../components';
+import { CarePage, DoseList, PhotoViewer, SyncStatus, colors } from '../components';
+import { PatientContactAction } from '../patient-contact';
 import { getDoseState, summarizeDoses } from '../care-status';
 import { useCaregiver } from '../store';
 
 export default function TodayScreen() {
   const { data, prefs, now, mode, networkError, patientName } = useCaregiver();
   const [photo, setPhoto] = useState<SharedDose | null>(null);
-  const [contactError, setContactError] = useState<string | null>(null);
   const today = localDateKey(now);
   const doses = (data?.snapshot?.doses ?? []).filter(dose => dose.date === today).sort((a, b) => a.time.localeCompare(b.time));
   const summary = summarizeDoses(doses, prefs.threshold, now);
   const overdue = doses.filter(dose => getDoseState(dose, prefs.threshold, now) === 'overdue');
   const patient = prefs.patientNickname || patientName;
   const nextVisit = data?.snapshot?.nextVisit;
-  const contact = async () => {
-    setContactError(null);
-    const phone = prefs.phone.replace(/[^\d+]/g, '');
-    if (!phone) return;
-    try { await Linking.openURL(`tel:${phone}`); } catch { setContactError('전화 앱을 열지 못했어요. 등록된 번호로 직접 연락해 주세요.'); }
-  };
   return <CarePage title="오늘">
-    <View style={{ gap: 5 }}><Text style={s.micro}>{formatDate(today, { month: 'long', day: 'numeric', weekday: 'long' })}</Text><Text accessibilityRole="header" style={s.title}>{patient}님의 복약 기록</Text></View>
+    <View style={{ gap: 5 }}><Text style={s.micro}>{formatDate(today, { month: 'long', day: 'numeric', weekday: 'long' })}</Text><Text accessibilityRole="header" style={s.title}>{`${patient}의 복약 기록`}</Text></View>
     {summary.total === 0 ? <Card><Empty icon="time-outline" title="오늘 일정이 아직 전달되지 않았어요" body="환자 앱에서 일정을 설정하고 공유하면 이곳에서 확인할 수 있어요." /></Card>
       : summary.overdue > 0 ? <Card style={{ backgroundColor: colors.amberSoft, borderColor: '#EFE0C8', gap: 12 }}>
         <View style={[s.inline, { gap: 9 }]}><Icon name="alert-circle-outline" color={colors.amber} /><Text style={[s.section, { color: colors.amber }]}>{overdue.length === 1 ? `${overdue[0].label} · 미기록` : `확인이 필요한 미기록 ${overdue.length}건`}</Text></View>
         {overdue.length > 1 && <Text style={s.body}>{overdue.map(dose => `${dose.time} ${dose.label}`).join(' · ')}</Text>}
         <Text style={s.body}>예정 시각에서 설정한 {prefs.threshold}분이 지나도 받은 기록이 없어요.</Text>
-        {prefs.phone ? <CareButton title={`${patient}님께 전화하기`} icon="call-outline" secondary onPress={() => void contact()} /> : <CareButton title="연락처 등록하기" secondary onPress={() => router.push('/settings')} />}
-        {contactError && <Text accessibilityRole="alert" style={[s.micro, { color: colors.amber }]}>{contactError}</Text>}
+        <PatientContactAction patient={patient} />
       </Card>
         : <View style={[s.inline, { alignItems: 'flex-start', gap: 10, paddingVertical: 4 }]}><Icon name={summary.recorded === summary.total ? 'checkmark-circle-outline' : 'time-outline'} color={colors.teal} /><View style={{ flex: 1, gap: 5 }}><Text style={s.section}>{summary.recorded === summary.total ? '오늘 일정의 기록을 모두 받았어요' : '아직 확인이 필요한 미기록은 없어요'}</Text><Text style={s.body}>오늘 {summary.total}회 일정 중 {summary.recorded}회 기록됨</Text></View></View>}
     <View style={{ gap: 12 }}>

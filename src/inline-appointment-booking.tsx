@@ -1,12 +1,12 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 import { addVisit, formatDate, localDateKey, removeVisit, upcomingVisits, type Visit } from './domain';
 import { isCalendarDate, shiftMonth, startOfMonth } from './calendar';
 import { MonthCalendar } from './month-calendar';
 import { HospitalContactCard } from './hospital-contact-card';
 import { useCare } from './store';
-import { Button, C, Card, s } from './ui';
+import { Button, C, Card, Icon, s, useInlineEditorBack } from './ui';
 import { MotionPressable as Pressable } from './motion';
 import type { BookingScrollAnchor } from './booking-scroll';
 
@@ -26,18 +26,22 @@ function VisitList({ title, visits, onDelete }: { title: string; visits: Visit[]
 }
 
 export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnchor }) {
-  const { state, commit, confirm, notify, now } = useCare();
+  const { state, commit, confirm, now } = useCare();
   const params = useLocalSearchParams<{ date?: string }>();
   const linkedDate = isCalendarDate(params.date) ? params.date : undefined;
   const today = localDateKey(now);
   const [date, setDate] = useState(linkedDate ?? today);
   const [month, setMonth] = useState(() => startOfMonth(linkedDate ?? today));
   const [adding, setAdding] = useState(false);
+  const [pickingDate, setPickingDate] = useState(false);
   const [hospitalName, setHospitalName] = useState('');
   const [hour, setHour] = useState('');
   const [minute, setMinute] = useState('');
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
+  const originDate = useRef(date);
+  const hourField = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const minuteField = useRef<React.ComponentRef<typeof TextInput>>(null);
 
   useFocusEffect(useCallback(() => {
     if (linkedDate) {
@@ -45,6 +49,20 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
       setMonth(startOfMonth(linkedDate));
     }
   }, [linkedDate]));
+
+  const closeEditor = useCallback(() => {
+    if (saving.current) return;
+    Keyboard.dismiss();
+    setDate(originDate.current);
+    setMonth(startOfMonth(originDate.current));
+    setPickingDate(false);
+    setAdding(false);
+  }, []);
+  const back = useCallback(() => {
+    if (pickingDate) setPickingDate(false);
+    else closeEditor();
+  }, [closeEditor, pickingDate]);
+  useInlineEditorBack(adding, back);
 
   const upcoming = upcomingVisits(state, now);
   const earlier = state.visits
@@ -56,27 +74,32 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
   const changeMonth = (amount: number) => {
     const next = shiftMonth(month, amount);
     setMonth(next);
-    setDate(next === startOfMonth(today) ? today : next);
+    if (!adding) setDate(next === startOfMonth(today) ? today : next);
   };
   const startAdding = () => {
+    originDate.current = date;
     setHospitalName(state.hospitalContact.name);
     setHour('');
     setMinute('');
+    setPickingDate(false);
     setAdding(true);
   };
+  const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+  let timeError = '';
+  if (date < today) timeError = '오늘 이후의 진료일을 선택해 주세요.';
+  else if (Number(hour) > 23 || Number(minute) > 59) timeError = '시는 0~23, 분은 0~59로 입력해 주세요.';
+  else if (hour && minute && new Date(`${date}T${time}:00`).getTime() <= now.getTime()) timeError = '이미 지난 시간이에요. 진료일이나 시간을 바꿔 주세요.';
+  const canSave = !!(hospitalName.trim() && hour && minute) && !timeError && !pickingDate;
   const save = async () => {
-    if (saving.current) return;
-    if (Number(hour) > 23 || Number(minute) > 59) {
-      notify('진료 시간을 00:00부터 23:59 사이로 입력해 주세요.');
-      return;
-    }
+    if (saving.current || !canSave) return;
     saving.current = true;
     setBusy(true);
-    const anchor = scrollAnchor.prepare();
     try {
-      const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
-      if (await commit(current => addVisit(current, { date, time, hospitalName }), '진료 일정을 저장했어요.')) setAdding(false);
-      else scrollAnchor.cancel(anchor);
+      if (await commit(current => addVisit(current, { date, time, hospitalName }), `${formatDate(date)} ${time} 진료를 저장했어요.`)) {
+        Keyboard.dismiss();
+        setMonth(startOfMonth(date));
+        setAdding(false);
+      }
     } finally { saving.current = false; setBusy(false); }
   };
   const askDelete = (item: Visit) => {
@@ -84,6 +107,8 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
       title: '진료 일정을 삭제할까요?',
       body: `${item.hospitalName} · ${formatDate(item.date)} ${item.time}\n앱의 일정만 삭제돼요. 병원 예약은 유지됩니다.`,
       label: '일정 삭제',
+      cancelLabel: '일정 유지',
+      destructive: true,
       onConfirm: async () => {
         const anchor = scrollAnchor.prepare();
         if (!await commit(current => removeVisit(current, item.id), '진료 일정을 삭제했어요.')) scrollAnchor.cancel(anchor);
@@ -91,43 +116,57 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
     });
   };
 
+  const selectDate = (day: string) => {
+    setDate(day);
+    setPickingDate(false);
+  };
+  const calendar = <MonthCalendar compact month={month} selectedDate={date} today={today}
+    onSelectDate={selectDate} onChangeMonth={changeMonth} onToday={() => { setMonth(startOfMonth(today)); selectDate(today); }}
+    getDayInfo={day => {
+      const count = counts.get(day);
+      return count ? { accessibilityLabel: `진료 일정 ${count}건`, markers: [{ text: '진료', color: C.blue }] } : {};
+    }} />;
+  if (adding) return <Card>
+    <View style={s.row}>
+      <Text accessibilityRole="header" style={s.section}>진료 일정 추가</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="진료 일정 입력 취소" disabled={busy}
+        onPress={closeEditor} style={styles.textButton}><Text style={s.body}>취소</Text></Pressable>
+    </View>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${formatDate(date)} 진료 날짜 변경`} accessibilityState={{ expanded: pickingDate }}
+      disabled={busy} onPress={() => { Keyboard.dismiss(); setMonth(startOfMonth(date)); setPickingDate(!pickingDate); }}
+      style={styles.dateRow}>
+      <View style={s.inline}><Icon name="calendar-outline" size={18} /><Text style={styles.visitTime}>{formatDate(date)}</Text></View>
+      <Text style={s.body}>{pickingDate ? '달력 닫기' : '날짜 변경'}</Text>
+    </Pressable>
+    {pickingDate && calendar}
+    <View>
+      <Text style={s.label}>병원명</Text>
+      <TextInput accessibilityLabel="진료 병원명" style={s.input} maxLength={80} value={hospitalName} editable={!busy}
+        returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => hourField.current?.focus()}
+        onChangeText={setHospitalName} placeholder="병원 이름" placeholderTextColor={C.muted} />
+    </View>
+    <View>
+      <Text style={s.label}>진료 시간 (24시간제)</Text>
+      <View style={s.inline}>
+        <TextInput ref={hourField} accessibilityLabel="진료 시" style={[s.input, styles.timeInput]} keyboardType="number-pad" maxLength={2} selectTextOnFocus
+          returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => minuteField.current?.focus()}
+          value={hour} editable={!busy} onChangeText={value => setHour(value.replace(/\D/g, ''))} placeholder="시" placeholderTextColor={C.muted} />
+        <Text style={s.section}>:</Text>
+        <TextInput ref={minuteField} accessibilityLabel="진료 분" style={[s.input, styles.timeInput]} keyboardType="number-pad" maxLength={2} selectTextOnFocus
+          returnKeyType="done"
+          value={minute} editable={!busy} onChangeText={value => setMinute(value.replace(/\D/g, ''))} placeholder="분" placeholderTextColor={C.muted} />
+      </View>
+    </View>
+    {!!timeError && <Text accessibilityLiveRegion="polite" style={styles.error}>{timeError}</Text>}
+    <Button title={busy ? '저장 중…' : '일정 저장'} disabled={busy || !canSave} onPress={() => void save()} />
+  </Card>;
   return <View style={styles.content}>
     <VisitList title="다음 진료" visits={upcoming} onDelete={askDelete} />
     <View onLayout={scrollAnchor.onAnchorLayout} style={styles.content}>
       <HospitalContactCard editable={false} />
-      <View pointerEvents={busy ? 'none' : 'auto'}>
-        <MonthCalendar compact month={month} selectedDate={date} today={today}
-          onSelectDate={setDate} onChangeMonth={changeMonth} onToday={() => { setMonth(startOfMonth(today)); setDate(today); }}
-          getDayInfo={day => {
-            const count = counts.get(day);
-            return count ? { accessibilityLabel: `진료 일정 ${count}건`, markers: [{ text: '진료', color: C.blue }] } : {};
-          }} />
-      </View>
+      {calendar}
       <VisitList title="지난 진료" visits={earlier} onDelete={askDelete} />
-      {date >= today && (adding ? <Card>
-        <View style={s.row}>
-          <Text accessibilityRole="header" style={s.section}>진료 일정 추가</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="진료 일정 입력 닫기" disabled={busy}
-            onPress={() => setAdding(false)} style={styles.textButton}><Text style={s.muted}>닫기</Text></Pressable>
-        </View>
-        <Text style={s.body}>병원에서 정한 진료 시간을 입력하세요.</Text>
-        <View>
-          <Text style={s.label}>병원명</Text>
-          <TextInput accessibilityLabel="진료 병원명" style={s.input} maxLength={80} value={hospitalName} editable={!busy}
-            onChangeText={setHospitalName} placeholder="병원 이름" placeholderTextColor={C.muted} />
-        </View>
-        <View>
-          <Text style={s.label}>진료 시간 (24시간제)</Text>
-          <View style={s.inline}>
-            <TextInput accessibilityLabel="진료 시" style={[s.input, styles.timeInput]} keyboardType="number-pad" maxLength={2} selectTextOnFocus
-              value={hour} editable={!busy} onChangeText={value => setHour(value.replace(/\D/g, ''))} placeholder="시" placeholderTextColor={C.muted} />
-            <Text style={s.section}>:</Text>
-            <TextInput accessibilityLabel="진료 분" style={[s.input, styles.timeInput]} keyboardType="number-pad" maxLength={2} selectTextOnFocus
-              value={minute} editable={!busy} onChangeText={value => setMinute(value.replace(/\D/g, ''))} placeholder="분" placeholderTextColor={C.muted} />
-          </View>
-        </View>
-        <Button title={busy ? '저장 중…' : '일정 저장'} disabled={busy || !hospitalName.trim() || !hour || !minute} onPress={() => void save()} />
-      </Card> : <Button title="진료 일정 추가" icon="add" onPress={startAdding} />)}
+      {date >= today && <Button title="진료 일정 추가" icon="add" onPress={startAdding} />}
     </View>
   </View>;
 }
@@ -138,5 +177,7 @@ const styles = StyleSheet.create({
   divider: { borderTopWidth: 1, borderColor: C.line, paddingTop: 8 },
   visitTime: { color: C.navy, fontSize: 16, fontWeight: '700' },
   textButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+  dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', alignContent: 'center', gap: 8, flexWrap: 'wrap', minHeight: 48, paddingHorizontal: 12, backgroundColor: C.pale, borderRadius: 9 },
+  error: { color: '#a13b35', fontSize: 13, lineHeight: 20 },
   timeInput: { width: 64, textAlign: 'center', textAlignVertical: 'center' },
 });

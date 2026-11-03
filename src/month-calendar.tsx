@@ -37,7 +37,7 @@ export function MonthCalendar({ month, selectedDate, today, onSelectDate, onChan
           <Icon name="chevron-forward" size={20} color={C.navy} />
         </Pressable>
       </View>
-      {month !== startOfMonth(today) && <Pressable accessibilityRole="button" accessibilityLabel="오늘 날짜 선택" onPress={onToday} style={styles.todayButton}>
+      {(selectedDate !== today || month !== startOfMonth(today)) && <Pressable accessibilityRole="button" accessibilityLabel="오늘로 돌아가기" onPress={onToday} style={styles.todayButton}>
         <Text style={styles.todayLabel}>오늘</Text>
       </Pressable>}
     </View>

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
-import { Tabs } from 'expo-router';
+import { router, Tabs, usePathname, useRootNavigationState } from 'expo-router';
 import { PlatformPressable } from 'expo-router/react-navigation';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,9 +13,20 @@ import { colors } from '../components';
 function Navigation() {
   const { ready, mode } = useCaregiver();
   const inset = useSafeAreaInsets();
+  const path = usePathname();
+  const root = useRootNavigationState();
+  const enteredFromConnection = useRef(false);
+  useEffect(() => {
+    if (!ready) return;
+    if (mode === 'disconnected') enteredFromConnection.current = true;
+    else if (enteredFromConnection.current && root?.key) {
+      enteredFromConnection.current = false;
+      if (path !== '/') router.replace('/');
+    }
+  }, [ready, mode, root?.key, path]);
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, backgroundColor: C.bg }}><ActivityIndicator color={colors.teal} /><Text style={s.body}>연결 정보를 불러오는 중이에요.</Text></View>;
   if (mode === 'disconnected') return <ConnectScreen />;
-  return <Tabs screenOptions={{
+  return <Tabs backBehavior="history" screenOptions={{
     headerShown: false,
     tabBarButton: props => <PlatformPressable {...props} pressColor="transparent" android_ripple={{ color: 'transparent' }} pressOpacity={1} hoverEffect={undefined} />,
     tabBarActiveTintColor: colors.teal, tabBarInactiveTintColor: '#83919A',

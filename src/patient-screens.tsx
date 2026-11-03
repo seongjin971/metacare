@@ -43,7 +43,7 @@ function Disclosure({ title, children }: { title: string; children: React.ReactN
   );
 }
 
-function DoseRow({ dose }: { dose: Dose }) {
+function DoseRow({ dose, canCapture }: { dose: Dose; canCapture: boolean }) {
   const { commit, confirm, notify } = useCare();
   const [cameraOpen, setCameraOpen] = useState(false);
   useFocusEffect(useCallback(() => () => setCameraOpen(false), []));
@@ -53,8 +53,10 @@ function DoseRow({ dose }: { dose: Dose }) {
     : '';
   const undo = () => confirm({
     title: '복약 기록을 취소할까요?',
-    body: '미기록으로 변경하며, 수정 내역은 남습니다.',
+    body: `${dose.label} 기록을 미기록으로 바꿉니다.${dose.photo ? ' 이 기록에 첨부한 사진도 삭제돼요.' : ''}`,
     label: '기록 취소',
+    cancelLabel: '기록 유지',
+    destructive: true,
     onConfirm: () => {
       void commit(state => recordDose(state, dose.id, false), '기록을 취소했어요.').then(async saved => {
         if (saved && dose.photo) await removeDosePhoto(dose.photo).catch(() => notify('기록은 취소했지만 사진 파일 정리에 실패했어요.'));
@@ -62,54 +64,43 @@ function DoseRow({ dose }: { dose: Dose }) {
     },
   });
   const saveCapture = async (capture: VerifiedDoseCapture, canCommit: () => boolean) => {
-    try {
-      return await savePhotoRecord(capture, {
-        savePhoto: saveDosePhoto,
-        removePhoto: removeDosePhoto,
-        canCommit,
-        commitRecord: photo => commit(state => {
-          if (!canCommit()) throw new Error('촬영이 중단됐어요. 다시 촬영해 주세요.');
-          const current = state.doses.find(item => item.id === dose.id);
-          if (!current || current.status !== 'pending') throw new Error('복약 일정이 변경됐어요. 복약 화면에서 다시 확인해 주세요.');
-          return recordDose(state, dose.id, true, new Date(), photo);
-        }, '사진 인증 완료'),
-      });
-    } catch {
-      notify('사진을 저장하지 못했어요. 다시 시도해 주세요.');
-      return false;
-    }
+    return savePhotoRecord(capture, {
+      savePhoto: saveDosePhoto,
+      removePhoto: removeDosePhoto,
+      canCommit,
+      commitRecord: photo => commit(state => {
+        if (!canCommit()) throw new Error('촬영이 중단됐어요. 다시 촬영해 주세요.');
+        const current = state.doses.find(item => item.id === dose.id);
+        if (!current || current.status !== 'pending') throw new Error('복약 일정이 변경됐어요. 복약 화면에서 다시 확인해 주세요.');
+        return recordDose(state, dose.id, true, new Date(), photo);
+      }, '사진 인증 완료'),
+    });
   };
   return (
     <>
     <View style={styles.doseRow}>
       <View style={styles.itemContent}>
         <Text style={styles.itemTitle}>{dose.label}</Text>
-        <Text style={s.muted}>{dose.time}{taken ? ` · ${dose.photo?.verification ? '사진 인증' : dose.photo ? '사진 기록' : '자가 기록'} ${recordedTime}` : ''}</Text>
+        <Text style={s.muted}>{dose.time}{taken && <Text style={{ color: C.green }}> · {dose.photo?.verification ? '사진 인증' : dose.photo ? '사진 기록' : '자가 기록'} {recordedTime}</Text>}</Text>
       </View>
-      {!taken ? (
+      {!taken && canCapture ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${dose.label} 사진 촬영하고 기록`}
-          onPress={() => {
-            if (!isPhotoAnalyzerAvailable()) {
-              notify('사진 확인 기능이 포함된 설치 앱에서 촬영해 주세요.');
-              return;
-            }
-            setCameraOpen(true);
-          }}
+          accessibilityLabel={`${dose.label} 약봉투 촬영`}
+          onPress={() => setCameraOpen(true)}
           style={({ pressed }) => [styles.captureButton, pressed && { opacity: 0.7 }]}
         >
           <Icon name="camera-outline" size={18} color={C.blue} />
-          <Text style={styles.captureLabel}>촬영</Text>
+          <Text style={styles.captureLabel}>약봉투 촬영</Text>
         </Pressable>
-      ) : (
+      ) : taken ? (
         <View style={s.inline}>
-        {dose.photo && <DosePhotoButton photo={dose.photo} label={dose.label} />}
-        <Pressable accessibilityRole="button" accessibilityLabel={`${dose.label} 기록 수정`} onPress={undo} style={styles.recordAction}>
-          <Text style={[styles.statusText, { color: C.green }]}>{dose.photo?.verification ? '인증 완료' : '기록됨'}</Text>
-        </Pressable>
+          {dose.photo && <DosePhotoButton photo={dose.photo} label={dose.label} />}
+          <Pressable accessibilityRole="button" accessibilityLabel={`${dose.label} 기록 취소`} onPress={undo} style={styles.recordAction}>
+            <Text style={s.muted}>기록 취소</Text>
+          </Pressable>
         </View>
-      )}
+      ) : <Text style={s.muted}>미기록</Text>}
     </View>
     {cameraOpen && <DoseCamera label={dose.label} onClose={() => setCameraOpen(false)} onSave={saveCapture} />}
     </>
@@ -117,14 +108,17 @@ function DoseRow({ dose }: { dose: Dose }) {
 }
 
 function DoseList({ doses }: { doses: Dose[] }) {
+  const canCapture = isPhotoAnalyzerAvailable();
   return (
     <View>
       {doses.map((dose, index) => (
         <React.Fragment key={dose.id}>
           {index > 0 && <View style={s.divider} />}
-          <DoseRow dose={dose} />
+          <DoseRow dose={dose} canCapture={canCapture} />
         </React.Fragment>
       ))}
+      {!canCapture && doses.some(dose => dose.status === 'pending') &&
+        <Text style={s.micro}>약봉투 촬영은 메타케어 설치 앱에서 할 수 있어요.</Text>}
     </View>
   );
 }
@@ -334,7 +328,6 @@ const styles = StyleSheet.create({
   itemContent: { flex: 1, gap: 5 },
   textAction: { minHeight: 44, paddingHorizontal: 8, justifyContent: 'center', alignItems: 'center' },
   actionText: { color: C.blue, fontSize: 13, fontWeight: '600' },
-  statusText: { fontSize: 13, paddingHorizontal: 8 },
   recordAction: { minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
   doseRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 72, paddingVertical: 10 },
   captureButton: { minWidth: 80, minHeight: 44, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 8, backgroundColor: C.pale },

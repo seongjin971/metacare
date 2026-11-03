@@ -46,9 +46,10 @@ function validData(value: unknown): value is CaregiverData {
 
 function messageFor(error: unknown, fallback: string): string {
   if (error instanceof CareApiError) {
-    if (error.status === 404 || error.status === 410) return '연결 코드를 다시 확인해 주세요. 만료됐다면 환자 앱에서 새 코드를 만들어 주세요.';
+    if (error.status === 400 || error.status === 404 || error.status === 410) return '연결 코드를 다시 확인해 주세요. 만료됐다면 환자 앱에서 새 코드를 만들어 주세요.';
     if (error.status === 409) return '이미 사용된 연결 코드예요. 환자 앱에서 새 코드를 만들어 주세요.';
     if (error.status === 429) return '요청이 많아요. 잠시 후 다시 시도해 주세요.';
+    if (!error.status || error.status >= 500) return '서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.';
   }
   return fallback;
 }

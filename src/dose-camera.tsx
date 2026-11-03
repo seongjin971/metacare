@@ -34,6 +34,7 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
   const [mountFailed, setMountFailed] = useState(false);
   const [error, setError] = useState('');
   const [capture, setCapture] = useState<DoseCapture | null>(null);
+  const [verified, setVerified] = useState<VerifiedDoseCapture | null>(null);
 
   const checkPermission = useCallback(async () => {
     try { await getPermission(); }
@@ -94,6 +95,22 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
     }
   };
 
+  const saveVerified = async (photo: VerifiedDoseCapture) => {
+    const session = captureSession.current;
+    const canCommit = () => alive.current && active.current && session === captureSession.current;
+    if (!canCommit() || busyRef.current === 'save') return;
+    busyRef.current = 'save';
+    setBusy('save');
+    setError('');
+    const saved = await onSave(photo, canCommit).catch(() => false);
+    busyRef.current = null;
+    if (!alive.current) return;
+    setBusy(null);
+    // A successful durable write still counts if the app went into the background during the write.
+    if (saved) onClose();
+    else setError('이 사진으로 다시 저장하거나 약봉투를 다시 촬영해 주세요.');
+  };
+
   const takePhoto = async () => {
     if (busyRef.current || !ready || !camera.current || !active.current || capture) return;
     busyRef.current = 'capture';
@@ -118,14 +135,8 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
         setError(result.message);
         return;
       }
-      busyRef.current = 'save';
-      setBusy('save');
-      const saved = await onSave(result.capture, isCurrent);
-      // Once the durable write has completed, a background transition cannot
-      // undo it. Close the still-mounted camera to match the committed record.
-      if (!alive.current) return;
-      if (saved) onClose();
-      else setError('사진은 확인했지만 기록을 저장하지 못했어요. 다시 촬영해 주세요.');
+      setVerified(result.capture);
+      await saveVerified(result.capture);
     } catch {
       if (isCurrent()) setError('사진을 처리하지 못했어요. 다시 촬영해 주세요.');
     } finally {
@@ -138,6 +149,7 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
     if (busyRef.current) return;
     captureSession.current += 1;
     setCapture(null);
+    setVerified(null);
     setReady(false);
     setMountFailed(false);
     setError('');
@@ -209,14 +221,21 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
               </View>
             )}
           </View>
-          <View style={styles.footer}>
-            {!!error && <FadeIn motionKey={error} style={{ gap: 4 }}><Text style={styles.failureTitle}>사진 인증 미완료</Text><Text accessibilityRole="alert" style={styles.error}>{error}</Text></FadeIn>}
+          {(!!error || !!capture || cameraVisible) && <View style={styles.footer}>
+            {cameraVisible && !error && <Text style={s.muted}>복용 시간과 식전·식후 글씨가 보이게 맞춰 주세요.</Text>}
+            {!!error && <FadeIn motionKey={error} style={{ gap: 4 }}>
+              {capture && <Text style={styles.failureTitle}>{verified ? '기록 저장 실패' : '사진 인증 미완료'}</Text>}
+              <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
+            </FadeIn>}
             {capture ? (
               busy ? <View accessibilityLiveRegion="polite" style={styles.processing}>
                 <ActivityIndicator color={C.blue} />
                 <Text style={styles.processingText}>{busy === 'save' ? '기록 저장 중…' : '약봉투 확인 중…'}</Text>
-              </View> : <Button title="다시 촬영" icon="camera-outline" onPress={retake} />
-            ) : (
+              </View> : verified ? <View style={styles.actions}>
+                <View style={{ flex: 1 }}><Button title="다시 촬영" secondary onPress={retake} /></View>
+                <View style={{ flex: 1 }}><Button title="저장 재시도" disabled={!foreground} onPress={() => void saveVerified(verified)} /></View>
+              </View> : <Button title="다시 촬영" icon="camera-outline" disabled={!foreground} onPress={retake} />
+            ) : cameraVisible ? (
               <View style={styles.actions}>
                 <Pressable
                   accessibilityRole="button" accessibilityLabel="카메라 전환"
@@ -226,8 +245,8 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
                 ><Icon name="camera-reverse-outline" color={cameraVisible && !busy ? C.blue : C.muted} /></Pressable>
                 <View style={{ flex: 1 }}><Button title={busy === 'capture' ? '촬영 중…' : '사진 촬영'} icon="camera-outline" disabled={!cameraVisible || !ready || !!busy} onPress={() => void takePhoto()} /></View>
               </View>
-            )}
-          </View>
+            ) : null}
+          </View>}
         </View>
       </View>
     </Modal>

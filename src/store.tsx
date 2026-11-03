@@ -8,7 +8,9 @@ import { PatientSharingProvider } from './caregiver-link';
 import { onWebVisitsChanged, withNewerVisits, writeWebState } from './web-visit-storage';
 
 const STORAGE_KEY = 'metacare.demo.v1';
-type Dialog = { title: string; body: string; label: string; onConfirm: () => void };
+export type Dialog = {
+  title: string; body: string; label: string; cancelLabel?: string; destructive?: boolean; onConfirm: () => void;
+};
 type Store = { state: AppState; update: (change: (s: AppState) => AppState, message?: string) => boolean; commit: (change: (s: AppState) => AppState, message?: string) => Promise<boolean>; notify: (message: string) => void; confirm: (dialog: Dialog) => void; notificationStatus: NotificationSyncResult; setNotificationStatus: (v: NotificationSyncResult) => void; now: Date };
 const Context = createContext<Store | null>(null);
 export function useCare() { const value = useContext(Context); if (!value) throw new Error('CareProvider required'); return value; }
@@ -129,13 +131,13 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
     <Modal visible={!!dialog} transparent animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={() => setDialog(null)}>
       <View style={{ flex: 1, backgroundColor: '#14213b66', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <FadeIn accessibilityViewIsModal style={{ width: '100%', maxWidth: 430, backgroundColor: 'white', padding: 26, borderRadius: 26, gap: 18 }}>
-          <Text style={{ fontSize: 21, fontWeight: '700', color: '#172b4d' }}>{dialog?.title}</Text>
+          <Text accessibilityRole="header" style={{ fontSize: 21, fontWeight: '700', color: '#172b4d' }}>{dialog?.title}</Text>
           <Text style={{ fontSize: 15, lineHeight: 24, color: '#59677e' }}>{dialog?.body}</Text>
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <Pressable accessibilityRole="button" onPress={() => setDialog(null)} style={{ flex: 1, padding: 16, borderRadius: 14, backgroundColor: '#f0f3f9' }}>
-              <Text style={{ textAlign: 'center', fontWeight: '700' }}>돌아가기</Text>
+              <Text style={{ textAlign: 'center', fontWeight: '700', color: '#192c4b' }}>{dialog?.cancelLabel ?? '취소'}</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => { const action = dialog?.onConfirm; setDialog(null); action?.(); }} style={{ flex: 1, padding: 16, borderRadius: 14, backgroundColor: '#3066e9' }}>
+            <Pressable accessibilityRole="button" onPress={() => { const action = dialog?.onConfirm; setDialog(null); action?.(); }} style={{ flex: 1, padding: 16, borderRadius: 14, backgroundColor: dialog?.destructive ? '#ab403b' : '#3066e9' }}>
               <Text style={{ textAlign: 'center', color: 'white', fontWeight: '700' }}>{dialog?.label}</Text>
             </Pressable>
           </View>

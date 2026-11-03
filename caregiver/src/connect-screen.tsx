@@ -27,7 +27,11 @@ export function ConnectScreen() {
       </View>
     </Card>
     <Card style={{ gap: 18 }}>
-      <View><Text style={s.label}>연결 코드</Text><TextInput accessibilityLabel="8자리 연결 코드" value={code} onChangeText={value => { setCode(value.replace(/\D/g, '').slice(0, 8)); clearError(); }} placeholder="8자리 숫자" placeholderTextColor="#8C99A4" keyboardType="number-pad" maxLength={8} autoCorrect={false} editable={!busy} style={[s.input, { letterSpacing: 3, fontSize: 22 }]} />
+      <View><Text style={s.label}>연결 코드</Text><TextInput accessibilityLabel="8자리 연결 코드" value={code}
+        onChangeText={value => { setCode(value.replace(/\D/g, '').slice(0, 8)); clearError(); }}
+        placeholder="8자리 숫자" placeholderTextColor="#8C99A4" keyboardType="number-pad" returnKeyType="done" autoCorrect={false}
+        editable={!busy} onSubmitEditing={() => { if (!busy && code.length === 8) void connect(code); }}
+        style={[s.input, { letterSpacing: 3, fontSize: 22 }]} />
         <Text style={[s.micro, { marginTop: 8 }]}>환자 앱의 내 관리 → 보호자 연결에서{`\n`}만든 코드를 입력해 주세요.</Text></View>
       {error && <Text accessibilityRole="alert" style={[s.body, { color: colors.amber }]}>{error}</Text>}
       <CareButton title={busy ? '연결하는 중…' : '환자와 연결하기'} disabled={busy || code.length !== 8} onPress={() => void connect(code)} />

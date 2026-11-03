@@ -1,14 +1,35 @@
-import React from 'react';
-import { Image, ScrollView, StyleSheet, Text, View, useWindowDimensions, ViewStyle, type ScrollViewProps } from 'react-native';
+import React, { useCallback } from 'react';
+import { BackHandler, Image, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions, ViewStyle, type ScrollViewProps } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotionPressable as Pressable } from './motion';
+
+export function useInlineEditorBack(open: boolean, close: () => void) {
+  useFocusEffect(useCallback(() => {
+    if (!open) return;
+    if (Platform.OS === 'android') {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => { close(); return true; });
+      return () => subscription.remove();
+    }
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const onKey = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+        event.preventDefault();
+        close();
+      };
+      // React Native Web text inputs stop keydown from bubbling to document.
+      document.addEventListener('keydown', onKey, true);
+      return () => document.removeEventListener('keydown', onKey, true);
+    }
+  }, [open, close]));
+}
 
 export const C = { blue: '#3066e9', navy: '#192c4b', muted: '#78849a', line: '#e9edf4', bg: '#f5f7fb', mint: '#e9f7f3', green: '#208472', pale: '#edf2ff', white: '#ffffff' };
 export type IconName = React.ComponentProps<typeof Ionicons>['name'];
 export function Icon({ name, size = 22, color = C.blue }: { name: IconName; size?: number; color?: string }) { return <Ionicons name={name} size={size} color={color} />; }
 export function Badge({ children, tone = 'blue' }: { children: React.ReactNode; tone?: 'blue' | 'green' | 'gray' | 'orange' }) { const colors = { blue: [C.pale, C.blue], green: [C.mint, C.green], gray: ['#f0f2f6', '#758097'], orange: ['#fff4e2', '#a66b1d'] }; return <View style={{ backgroundColor: colors[tone][0], paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, alignSelf: 'flex-start' }}><Text style={{ color: colors[tone][1], fontSize: 12, fontWeight: '700' }}>{children}</Text></View>; }
-export function Button({ title, onPress, icon, secondary = false, disabled = false, small = false }: { title: string; onPress: () => void; icon?: IconName; secondary?: boolean; disabled?: boolean; small?: boolean }) { return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [s.button, { minHeight: small ? 44 : 48, backgroundColor: disabled ? '#e4e8f0' : secondary ? C.pale : C.blue, opacity: pressed ? 0.8 : 1 }]}>{icon && <Icon name={icon} size={18} color={secondary ? C.blue : 'white'} />}<Text style={{ fontSize: small ? 14 : 15, fontWeight: '600', color: disabled ? '#8a95a8' : secondary ? C.blue : 'white' }}>{title}</Text></Pressable>; }
+export function Button({ title, onPress, icon, secondary = false, disabled = false, small = false }: { title: string; onPress: () => void; icon?: IconName; secondary?: boolean; disabled?: boolean; small?: boolean }) { return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [s.button, { minHeight: small ? 44 : 48, backgroundColor: disabled ? '#e4e8f0' : secondary ? C.pale : C.blue, opacity: pressed ? 0.8 : 1 }]}>{icon && <Icon name={icon} size={18} color={secondary ? C.blue : 'white'} />}<Text style={{ fontSize: small ? 14 : 15, fontWeight: '600', color: disabled ? '#8a95a8' : secondary ? C.blue : 'white' }}>{title}</Text></Pressable>; }
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) { return <View style={[s.card, style]}>{children}</View>; }
 export function Section({ title, caption, action, onPress }: { title: string; caption?: string; action?: string; onPress?: () => void }) { return <View style={s.row}><View style={{ flex: 1 }}><Text style={s.section}>{title}</Text>{caption && <Text style={[s.muted, { marginTop: 4 }]}>{caption}</Text>}</View>{action && <Pressable accessibilityRole="button" onPress={onPress} style={[s.inline, { minHeight: 44, paddingLeft: 12 }]}><Text style={{ fontSize: 14, color: C.blue }}>{action}</Text><Icon name="chevron-forward" size={14} color={C.blue} /></Pressable>}</View>; }
 export function Empty({ icon, title, body }: { icon: IconName; title: string; body: string }) {

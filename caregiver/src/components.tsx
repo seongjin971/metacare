@@ -9,7 +9,7 @@ import { useCaregiver } from './store';
 export const colors = { ink: '#183044', teal: '#16766F', soft: '#EDF6F4', amber: '#9A6225', amberSoft: '#FCF4E8', line: '#E4EBEE', muted: '#71808B' };
 
 export function CareButton({ title, onPress, disabled = false, secondary = false, icon, danger = false }: { title: string; onPress: () => void; disabled?: boolean; secondary?: boolean; icon?: IconName; danger?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, { backgroundColor: disabled ? '#E8EDF0' : secondary ? colors.soft : danger ? '#A5433B' : colors.teal, opacity: pressed ? 0.85 : 1 }]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, { backgroundColor: disabled ? '#E8EDF0' : secondary ? colors.soft : danger ? '#A5433B' : colors.teal, opacity: pressed ? 0.85 : 1 }]}>
     {icon && <Icon name={icon} size={18} color={secondary ? colors.teal : 'white'} />}
     <Text style={{ fontSize: 15, fontWeight: '600', color: disabled ? colors.muted : secondary ? colors.teal : 'white' }}>{title}</Text>
   </Pressable>;
@@ -118,7 +118,6 @@ function SharedPhotoViewer({ dose, onClose }: { dose: SharedDose; onClose: () =>
           : uri ? <Image source={{ uri }} resizeMode="contain" accessibilityLabel={`${dose?.label} 기록에 첨부된 사진`} style={styles.photoArea} />
             : <View style={[styles.photoArea, { padding: 20 }]}><Text accessibilityRole="alert" style={s.body}>{error}</Text><CareButton secondary title="다시 불러오기" onPress={() => { setLoading(true); setError(null); setUri(null); setAttempt(value => value + 1); }} /></View>}
         <Text style={s.micro}>사진과 기록만으로 실제 복용 여부를 확인할 수는 없어요.</Text>
-        <CareButton title="닫기" secondary onPress={onClose} />
       </View>
     </View>
   </Modal>;
