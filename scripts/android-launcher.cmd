@@ -127,8 +127,10 @@ if errorlevel 1 goto wrong_device
 if errorlevel 1 goto reverse_failed
 call :is_target_avd "%TARGET_SERIAL%"
 if errorlevel 1 goto wrong_device
+rem A Quick Boot snapshot can restore Expo Go with a dead Metro connection and a
+rem broken LogBox. Start a fresh Expo Go process after Metro and adb reverse are ready.
 rem CMD protects the whole remote command; Android sh protects the URL's ampersands.
-"%ADB%" -s "%TARGET_SERIAL%" shell "am start -W -a android.intent.action.VIEW -d 'exp://127.0.0.1:8081?__expo_disable_fab=1&__expo_disable_auto_launch=1&__expo_disable_onboarding=1' -p host.exp.exponent"
+"%ADB%" -s "%TARGET_SERIAL%" shell "am start -S -W -a android.intent.action.VIEW -d 'exp://127.0.0.1:8081?__expo_disable_fab=1&__expo_disable_auto_launch=1&__expo_disable_onboarding=1' -p host.exp.exponent"
 if errorlevel 1 goto preview_failed
 echo.
 echo 현재 소스가 Expo Go에서 열렸습니다. 코드 저장 시 변경 내용이 반영됩니다.
