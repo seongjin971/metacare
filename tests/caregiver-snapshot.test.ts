@@ -76,6 +76,27 @@ test('sharing keeps only the newest 300 records', () => {
   assert.equal(snapshot.doses.some(item => Number(item.id.split('-')[1]) >= 300), false);
 });
 
+test('agenda consent sends only the first 30 upcoming visits in order with no contact details', () => {
+  const state = createInitialState(now);
+  state.visits = Array.from({ length: 31 }, (_, i) => ({
+    id: `private-${i}`, hospitalName: '진료 의원', date: '2026-11-02', time: `09:${String(i).padStart(2, '0')}`,
+  })).reverse();
+  state.visits.push({ ...state.visits[state.visits.length - 1], id: 'legacy-duplicate' });
+  state.visits.push({ id: 'ended', hospitalName: '지난 병원', date: '2026-10-31', time: '09:00' });
+  const shared = makeCareSnapshot(state, '환자', now, true, 'upcoming');
+  assert.deepEqual(shared.upcomingVisits, Array.from({ length: 30 }, (_, i) => ({
+    hospitalName: '진료 의원', date: '2026-11-02', time: `09:${String(i).padStart(2, '0')}`,
+  })));
+  assert.deepEqual(shared.nextVisit, shared.upcomingVisits?.[0]);
+  assert.ok(!Object.hasOwn(makeCareSnapshot(state, '환자', now, true), 'upcomingVisits'));
+  const disabled = makeCareSnapshot(state, '환자', now, false, 'upcoming');
+  assert.ok(!Object.hasOwn(disabled, 'upcomingVisits') && !Object.hasOwn(disabled, 'nextVisit'));
+  state.visits = [];
+  const empty = makeCareSnapshot(state, '환자', now, true, 'upcoming');
+  assert.deepEqual(empty.upcomingVisits, []);
+  assert.ok(!Object.hasOwn(empty, 'nextVisit'));
+});
+
 test('only the 30 most recently captured photos are referenced and legacy photos are unverified', () => {
   const state = createInitialState(now);
   state.doses = Array.from({ length: 35 }, (_, index) => ({

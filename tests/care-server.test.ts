@@ -184,7 +184,7 @@ test('shared snapshots validate all fields and replace records using a server ti
 });
 
 test('a shared visit is removed on the next unshared snapshot and expires without another patient upload', async t => {
-  let clock = new Date(2026, 10, 1, 9, 10).getTime();
+  let clock = Date.parse('2026-11-01T09:10:00+09:00');
   const f = await fixture(t, { now: () => clock });
   const patient = await f.patient();
   const caregiver = await f.pair(patient);
@@ -200,7 +200,7 @@ test('a shared visit is removed on the next unshared snapshot and expires withou
   assert.ok(!Object.hasOwn(await getShared(), 'nextVisit'));
   assert.ok(!(await readFile(f.dataPath, 'utf8')).includes('시연 의원'));
   await publish({ ...base, nextVisit, visitUpdate: { ...visitUpdate, consentRevision: 3 } });
-  clock = new Date(2026, 10, 1, 9, 11).getTime();
+  clock = Date.parse('2026-11-01T09:11:00+09:00');
   await f.restart();
   const expired = await getShared();
   assert.ok(!Object.hasOwn(expired, 'nextVisit'));
@@ -254,6 +254,115 @@ test('unversioned heartbeats and stale tabs cannot overwrite the newer agenda or
   await publish({ nextVisit: second, visitUpdate: { ...reenable, consentRevision: 4 } }); // previous caregiver's opt-in
   assert.equal((await shared(other)).nextVisit, undefined);
   assert.equal((await connection()).visitConsent, undefined);
+});
+
+test('agenda sharing requires a fresh pairing-scoped opt-in and keeps older caregivers on the single-visit response', async t => {
+  let clock = Date.parse('2026-11-02T16:00:00Z'); // 08:00 for this patient.
+  const f = await fixture(t, { now: () => clock });
+  const patient = await f.patient();
+  const caregiver = await f.pair(patient);
+  const full = '/v1/caregiver/snapshot?visits=upcoming';
+  const connection = async () => (await f.api<PatientConnection>('/v1/patient/connection', 'GET', patient)).body;
+  const share = async (fields: object) => (await f.api('/v1/patient/snapshot', 'PUT', patient, {
+    ...snapshot(), timeZone: 'America/Los_Angeles', ...fields,
+  })).response.status;
+  const read = async (path = full) => (await f.api<CaregiverData>(path, 'GET', caregiver)).body.snapshot!;
+  const first = { date: '2026-11-02', time: '08:01', hospitalName: '첫 의원' };
+  const second = { ...first, time: '11:30', hospitalName: '둘째 의원' };
+  const third = { ...first, date: '2026-11-03', hospitalName: '셋째 의원' };
+  const legacy = { connectedAt: (await connection()).connectedAt!, enabled: true, consentRevision: 1, scheduleRevision: 10 };
+  const agenda = { ...legacy, scope: 'upcoming', consentRevision: 2 };
+
+  assert.equal((await f.api(full)).response.status, 401);
+  assert.equal((await f.api(full + '&extra=yes', 'GET', caregiver)).response.status, 400);
+  assert.equal(await share({ upcomingVisits: [first] }), 400);
+  assert.equal(await share({ upcomingVisits: [first], visitUpdate: legacy }), 400);
+  assert.equal(await share({ visitUpdate: agenda }), 400);
+  assert.equal(await share({ nextVisit: second, upcomingVisits: [first, second], visitUpdate: agenda }), 400);
+  for (const invalid of [
+    [{ ...first, phone: 'private' }], [second, first], [first, second, first], [{ ...first, time: '24:30' }],
+    Array.from({ length: 31 }, (_, index) => ({ ...first, hospitalName: '의원' + index })),
+  ]) assert.equal(await share({ upcomingVisits: invalid, visitUpdate: agenda }), 400);
+
+  assert.equal(await share({ nextVisit: first, visitUpdate: legacy }), 200);
+  assert.equal(await share({ upcomingVisits: [first, second], visitUpdate: { ...agenda, consentRevision: 1 } }), 200);
+  assert.deepEqual((await read()).nextVisit, first);
+  assert.equal((await read()).upcomingVisits, undefined);
+  assert.equal(await share({ upcomingVisits: [first, first, second, third], visitUpdate: agenda }), 200);
+  await f.restart();
+  assert.deepEqual((await connection()).visitConsent, { revision: 2, enabled: true, scope: 'upcoming' });
+  assert.deepEqual((await read()).upcomingVisits, [first, second, third]);
+  const oldClient = await read('/v1/caregiver/snapshot');
+  assert.deepEqual(oldClient.nextVisit, first);
+  assert.equal(oldClient.upcomingVisits, undefined);
+
+  assert.equal(await share({}), 200);
+  assert.equal(await share({ nextVisit: first, visitUpdate: { ...legacy, consentRevision: 2 } }), 200);
+  assert.deepEqual((await read()).upcomingVisits, [first, second, third]);
+  clock += 60_000;
+  assert.deepEqual((await read()).upcomingVisits, [second, third]);
+  assert.deepEqual((await read('/v1/caregiver/snapshot')).nextVisit, second);
+  const edited = { ...agenda, scheduleRevision: 11 };
+  assert.equal(await share({ upcomingVisits: [third], visitUpdate: edited }), 200);
+  assert.equal(await share({ upcomingVisits: [first, second, third], visitUpdate: agenda }), 200);
+  assert.deepEqual((await read()).upcomingVisits, [third]);
+  assert.equal(await share({ upcomingVisits: [], visitUpdate: { ...edited, scheduleRevision: 12 } }), 200);
+  assert.deepEqual((await read()).upcomingVisits, []);
+  assert.equal((await read()).nextVisit, undefined);
+
+  assert.equal(await share({ visitUpdate: { ...legacy, consentRevision: 3, enabled: false } }), 200);
+  assert.equal(await share({ upcomingVisits: [third], visitUpdate: { ...edited, consentRevision: 3 } }), 200);
+  assert.equal((await read()).upcomingVisits, undefined);
+  assert.ok(!(await readFile(f.dataPath, 'utf8')).includes(third.hospitalName));
+  await f.api('/v1/caregiver/connection', 'DELETE', caregiver);
+  assert.equal((await f.api(full, 'GET', caregiver)).response.status, 401);
+  clock += 1000;
+  const replacement = await f.pair(patient);
+  assert.equal(await share({ upcomingVisits: [third], visitUpdate: { ...edited, consentRevision: 4 } }), 200);
+  assert.equal((await f.api<CaregiverData>(full, 'GET', replacement)).body.snapshot?.upcomingVisits, undefined);
+});
+
+test('a medication heartbeat from another zone cannot move or remove visits', async t => {
+  let now = NOW; // 00:00 UTC / 09:00 Seoul
+  const f = await fixture(t, { now: () => now });
+  const patient = await f.patient();
+  const caregiver = await f.pair(patient);
+  const next = { hospitalName: '의원', date: '2026-11-01', time: '02:00' };
+  const later = { ...next, time: '18:00' };
+  const update = { connectedAt: new Date(now).toISOString(), enabled: true, scope: 'upcoming', consentRevision: 1, scheduleRevision: 10 };
+  const records = snapshot();
+  const agenda = { timeZone: 'UTC', upcomingVisits: [next, later], visitUpdate: update };
+  const publish = async (fields: object) => (await f.api('/v1/patient/snapshot', 'PUT', patient, { ...records, ...fields })).response.status;
+  const read = async (full = true) => (await f.api<CaregiverData>(full ? '/v1/caregiver/snapshot?visits=upcoming' : '/v1/caregiver/snapshot', 'GET', caregiver)).body.snapshot!;
+
+  assert.equal(await publish(agenda), 200);
+  // Reopen an existing 1.0.4 store, before visit zones were stored separately.
+  const disk = JSON.parse(await readFile(f.dataPath, 'utf8'));
+  delete disk.patients[0].snapshot.visitTimeZone;
+  await writeFile(f.dataPath, JSON.stringify(disk));
+  await f.restart();
+  for (const fields of [
+    { timeZone: 'Asia/Seoul' },
+    { ...agenda, timeZone: 'Asia/Seoul', upcomingVisits: [later], visitUpdate: { ...update, scheduleRevision: 9 } },
+    { ...agenda, timeZone: 'Asia/Seoul', upcomingVisits: [later] },
+    agenda,
+  ]) {
+    assert.equal(await publish(fields), 200);
+    const shared = await read();
+    assert.equal(shared.timeZone, fields.timeZone);
+    assert.equal(shared.visitTimeZone, 'UTC');
+    assert.deepEqual(shared.upcomingVisits, [next, later]);
+    assert.deepEqual(shared.nextVisit, next);
+  }
+  assert.ok(!Object.hasOwn(await read(false), 'visitTimeZone'));
+  assert.equal(await publish({ ...agenda, visitTimeZone: 'Asia/Seoul' }), 400);
+  now += 2 * 60 * 60_000;
+  assert.deepEqual((await read()).upcomingVisits, [later]);
+  assert.equal(await publish({ ...agenda, timeZone: 'Asia/Seoul', upcomingVisits: [later], visitUpdate: { ...update, scheduleRevision: 11 } }), 200);
+  assert.equal((await read()).visitTimeZone, 'Asia/Seoul');
+  assert.equal(await publish({ visitUpdate: { connectedAt: update.connectedAt, enabled: false, consentRevision: 2, scheduleRevision: 0 } }), 200);
+  const revoked = await read();
+  for (const field of ['visitTimeZone', 'upcomingVisits', 'nextVisit']) assert.ok(!Object.hasOwn(revoked, field));
 });
 
 test('tokens, invitations, records and photographs survive restart without plaintext credentials on disk', async t => {

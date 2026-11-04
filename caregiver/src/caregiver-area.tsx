@@ -33,7 +33,7 @@ function Navigation({ home }: { home: CaregiverHome }) {
     tabBarLabelStyle: { fontSize: 12, fontWeight: '600', marginTop: 4 },
     sceneStyle: { backgroundColor: C.bg }, tabBarHideOnKeyboard: true,
   }}>
-    {([['index', '오늘', 'today-outline'], ['history', '기록', 'calendar-outline'], ['settings', '관리', 'options-outline']] as [string, string, IconName][]).map(([name, title, icon]) => <Tabs.Screen key={name} name={name} options={{ title, tabBarIcon: ({ color }) => <Icon name={icon} color={String(color)} size={22} /> }} />)}
+    {([['index', '오늘', 'today-outline'], ['history', '기록', 'time-outline'], ['visits', '진료 일정', 'calendar-outline'], ['settings', '관리', 'options-outline']] as [string, string, IconName][]).map(([name, title, icon]) => <Tabs.Screen key={name} name={name} options={{ title, tabBarIcon: ({ color }) => <Icon name={icon} color={String(color)} size={22} /> }} />)}
   </Tabs>;
 }
 

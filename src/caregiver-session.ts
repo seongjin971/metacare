@@ -24,14 +24,18 @@ export function readPatientSharingSession(value: unknown): PatientSharingSession
   const preference = item.visitPreference;
   const validPreference = item.active && !item.pendingRevoke && item.wasConnected === true && preference
     && typeof preference.connectedAt === 'string' && Number.isFinite(Date.parse(preference.connectedAt))
-    && Number.isSafeInteger(preference.revision) && preference.revision > 0 && typeof preference.enabled === 'boolean';
+    && Number.isSafeInteger(preference.revision) && preference.revision > 0 && typeof preference.enabled === 'boolean'
+    && (preference.scope === undefined || (preference.enabled && preference.scope === 'upcoming'));
   return {
     token: item.token, patientName: item.patientName, consentVersion: 1, active: item.active && item.pendingRevoke !== true,
     ...(item.invite && /^\d{8}$/.test(item.invite.code) && Number.isFinite(Date.parse(item.invite.expiresAt)) ? { invite: item.invite } : {}),
     ...(item.lastSync && Number.isFinite(Date.parse(item.lastSync)) ? { lastSync: item.lastSync } : {}),
     ...(item.wasConnected === true ? { wasConnected: true } : {}),
     ...(item.pendingRevoke === true ? { pendingRevoke: true } : {}),
-    ...(validPreference ? { visitPreference: { connectedAt: preference.connectedAt, enabled: preference.enabled, revision: preference.revision, pending: preference.pending === true } } : {}),
+    ...(validPreference ? { visitPreference: {
+      connectedAt: preference.connectedAt, enabled: preference.enabled, revision: preference.revision,
+      ...(preference.scope && { scope: preference.scope }), pending: preference.pending === true,
+    } } : {}),
   };
 }
 
@@ -46,8 +50,9 @@ export function requestPatientRevocation(session: PatientSharingSession): Patien
 export function reconcileVisitConsent(session: PatientSharingSession, connectedAt: string, remote?: VisitConsent): PatientSharingSession {
   const stored = session.visitPreference;
   const local = stored?.connectedAt === connectedAt ? stored : undefined;
+  // Concurrent enabled choices at the same revision use the pairing's confirmed scope.
   if (remote && (!local || remote.revision > local.revision ||
-    (remote.revision === local.revision && !remote.enabled && local.enabled))) {
+    (remote.revision === local.revision && local.enabled && (!remote.enabled || remote.scope !== local.scope)))) {
     return { ...session, visitPreference: { ...remote, connectedAt } };
   }
   if (stored && !local) {

@@ -4,6 +4,7 @@ import { careRequest, CareApiError } from '../shared/care-api';
 import { clearSession, readSession, writeSession } from '../shared/care-session';
 import type { PatientConnection as Connection, PatientSnapshotUpdate, PhotoTransfer } from '../shared/care-types';
 import { uploadSharedPhoto } from '../shared/care-photo-parts';
+import { MAX_SHARED_VISITS } from '../shared/care-visit';
 import type { AppState } from './domain';
 import { makeCareSnapshot } from './caregiver-snapshot';
 import { completePatientRevocation, readPatientSharingSession, reconcileVisitConsent, requestPatientRevocation, type PatientSharingSession } from './caregiver-session';
@@ -101,9 +102,10 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
       && saved.current.token === current.token;
     if (!valid()) return;
     const pref = current.visitPreference?.connectedAt === connectedAt ? current.visitPreference : undefined;
-    const snapshot = makeCareSnapshot(state, current.patientName, new Date(), pref?.enabled === true);
+    const snapshot = makeCareSnapshot(state, current.patientName, new Date(), pref?.enabled === true, pref?.scope);
     const body: PatientSnapshotUpdate = pref ? { ...snapshot, visitUpdate: {
       connectedAt: pref.connectedAt, enabled: pref.enabled, consentRevision: pref.revision,
+      ...(pref.enabled && pref.scope && { scope: pref.scope }),
       scheduleRevision: pref.enabled ? state.visitsRevision : 0,
     } } : snapshot;
     const serialized = JSON.stringify(body);
@@ -218,7 +220,9 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
     setBusy(true);
     try {
       const revision = Math.max(Date.now(), (current.visitPreference?.revision ?? 0) + 1);
-      await save({ ...current, visitPreference: { enabled, connectedAt, revision, pending: true } });
+      await save({ ...current, visitPreference: {
+        enabled, connectedAt, revision, pending: true, ...(enabled && { scope: 'upcoming' }),
+      } });
     } catch (caught) {
       setError(errorText(caught));
       return;
@@ -339,6 +343,8 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
   const { ready, busy, stopping, session, connection, error, photosPending, clock, invite, disconnect, setVisitSharing, retry } = sharing;
   const connected = session?.active === true && !!connection?.caregiverName && !!connection.connectedAt;
   const established = connected || session?.wasConnected === true;
+  const nextOnly = session?.visitPreference?.enabled === true && session.visitPreference.scope !== 'upcoming';
+  const visitControlDisabled = busy || stopping || (!connection?.connectedAt && !session?.visitPreference);
   const waiting = session?.active === true;
   const expiresIn = session?.invite ? Math.max(0, Math.ceil((Date.parse(session.invite.expiresAt) - clock) / 1000)) : 0;
   const stop = () => confirm({
@@ -389,13 +395,16 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
     {session?.active && session.wasConnected && !session.pendingRevoke && <>
       <View style={styles.consent}>
         <View style={styles.action}>
-          <Text style={s.body}>다음 진료 공유</Text>
-          <Text style={s.muted}>가장 가까운 진료의 병원명·날짜·시간</Text>
+          <Text style={s.body}>진료 일정 공유</Text>
+          <Text style={s.muted}>{nextOnly ? '가장 가까운 진료 한 건의 병원명·날짜·시간을 공유하고 있어요.'
+            : `예정된 진료 최대 ${MAX_SHARED_VISITS}건의 병원명·날짜·시간을 보호자에게 보여줘요.`}</Text>
         </View>
-        <Switch accessibilityLabel="보호자에게 다음 진료 공유" value={session.visitPreference?.enabled === true}
-          onValueChange={enabled => void setVisitSharing(enabled)} disabled={busy || stopping || (!connection?.connectedAt && !session.visitPreference)}
+        <Switch accessibilityLabel="보호자에게 진료 일정 공유" value={session.visitPreference?.enabled === true}
+          onValueChange={enabled => void setVisitSharing(enabled)} disabled={visitControlDisabled}
           trackColor={{ false: '#dfe5ee', true: C.blue }} thumbColor="white" />
       </View>
+      {nextOnly && <Button title={`예정된 진료 최대 ${MAX_SHARED_VISITS}건 공유하기`} small secondary
+        disabled={visitControlDisabled} onPress={() => void setVisitSharing(true)} />}
       {session.visitPreference?.pending && <Text style={s.muted}>{session.visitPreference.enabled ? '공유 설정 전송 대기 중' : '서버 연결 시 보호자 화면에서 일정이 사라져요.'}</Text>}
     </>}
     {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}

@@ -1,7 +1,6 @@
 import { isIP } from 'node:net';
 import type { Pool, PoolClient } from 'pg';
-import type { SharedVisit } from '../shared/care-types.ts';
-import { hash, photoIds, routeCare, tokenDigest, type CareStore, type Patient, type Role } from './care-core.ts';
+import { AGENDA_SNAPSHOT_PATH, hash, photoIds, routeCare, tokenDigest, type CareStore, type Patient, type Role } from './care-core.ts';
 import { HttpError } from './care-errors.ts';
 import { pruneVercelPhotos, routeVercelPhoto } from './vercel-photos.ts';
 
@@ -10,11 +9,6 @@ const photoPartLimit = 4_200_000; // 3 MiB base64 plus JSON, below Vercel's 4.5 
 const tenMinutes = 10 * 60_000;
 const patientColumns = 'id, token_hash AS "tokenHash", snapshot, visit_update AS "visitUpdate", invite, caregiver, sharing_revoked AS "sharingRevoked"';
 const tokenColumns: Record<Role, string> = { patient: 'token_hash', caregiver: "(caregiver->>'tokenHash')" };
-
-// Korean clinic appointments are entered as a date and wall-clock time; Vercel functions run in UTC.
-function isUpcomingClinicVisit(visit: SharedVisit, now = new Date()): boolean {
-  return Date.parse(visit.date + 'T' + visit.time + ':00+09:00') > now.getTime();
-}
 
 function transactionStore(client: PoolClient): CareStore {
   async function find(column: string, value: string) {
@@ -48,15 +42,19 @@ function transactionStore(client: PoolClient): CareStore {
 
 function endpoint(request: Request): string {
   const url = new URL(request.url);
+  const requestedVisits = url.searchParams.getAll('visits');
+  const agenda = requestedVisits.length === 1 && requestedVisits[0] === 'upcoming' && (request.method === 'GET' || request.method === 'OPTIONS');
+  if (agenda) url.searchParams.delete('visits');
   const query = [...url.searchParams];
-  if (url.pathname.startsWith('/v1/') && query.length === 0) return url.pathname;
+  let path = url.pathname;
   // Depending on the runtime adapter, the function sees the rewrite destination or the external path.
   if (query.length === 1 && query[0][0] === 'careRoute') {
-    const path = '/v1/' + query[0][1];
-    if (/^\/v1\/[A-Za-z0-9_/-]+$/.test(path) && (url.pathname === '/api/care' || url.pathname === path)) return path;
-  }
-  if (query.length) throw new HttpError(400, 'Query parameters are not supported.');
-  throw new HttpError(404, 'Route not found.');
+    path = '/v1/' + query[0][1];
+    if (!/^\/v1\/[A-Za-z0-9_/-]+$/.test(path) || (url.pathname !== '/api/care' && url.pathname !== path)) throw new HttpError(400, 'Invalid route.');
+  } else if (query.length) throw new HttpError(400, 'Query parameters are not supported.');
+  if (!path.startsWith('/v1/')) throw new HttpError(404, 'Route not found.');
+  if (agenda && path !== '/v1/caregiver/snapshot') throw new HttpError(400, 'Query parameters are not supported.');
+  return agenda ? AGENDA_SNAPSHOT_PATH : path;
 }
 
 async function readBody(request: Request, limit: number): Promise<unknown> {
@@ -176,7 +174,7 @@ export function createVercelCareHandler(pool: Pool, options: Options = {}) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const result = await routeCare(transactionStore(client), request.method, path, authorization, body, now, tenMinutes, isUpcomingClinicVisit);
+        const result = await routeCare(transactionStore(client), request.method, path, authorization, body, now, tenMinutes);
         await client.query('COMMIT');
         return Response.json(result.body, { status: result.status, headers });
       } catch (error) {

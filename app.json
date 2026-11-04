@@ -3,7 +3,7 @@
     "name": "메타케어",
     "slug": "metacare",
     "scheme": "metacare",
-    "version": "1.0.3",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/metacare-icon.png",
     "userInterfaceStyle": "light",
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.metacare.demo",
-      "versionCode": 4,
+      "versionCode": 6,
       "allowBackup": false,
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",

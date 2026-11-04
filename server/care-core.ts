@@ -1,8 +1,8 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { HttpError } from './care-errors.ts';
-import { isCareTimeZone } from '../shared/care-clock.ts';
+import { careClock, isCareTimeZone } from '../shared/care-clock.ts';
 import type { CareSnapshot, PatientSnapshotUpdate, SharedDose, SharedVisit, VisitUpdate } from '../shared/care-types.ts';
-import { isCareName as name, isCareDate as date, isCareTime as time, isSharedVisit, isUpcomingVisit } from '../shared/care-visit.ts';
+import { isCareName as name, isCareDate as date, isCareTime as time, isSharedVisit, isSharedVisitList, MAX_SHARED_VISITS } from '../shared/care-visit.ts';
 
 type StoredPhoto = { id: string; dataUri: string };
 export type Patient = {
@@ -18,6 +18,7 @@ export type Patient = {
 const PHOTO_REQUEST_LIMIT = 7 * 1024 * 1024;
 const PHOTO_BYTES_LIMIT = 5 * 1024 * 1024;
 export const MAX_PHOTOS = 30;
+export const AGENDA_SNAPSHOT_PATH = '/v1/caregiver/snapshot?visits=upcoming';
 
 export function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -51,19 +52,43 @@ function dose(value: unknown): value is SharedDose {
 }
 
 function validVisitUpdate(value: unknown): value is VisitUpdate {
-  return record(value) && keys(value, ['connectedAt', 'consentRevision', 'enabled', 'scheduleRevision']) && iso(value.connectedAt)
+  return record(value) && keys(value, ['connectedAt', 'consentRevision', 'enabled', 'scheduleRevision'], ['scope']) && iso(value.connectedAt)
+    && (value.scope === undefined || (value.scope === 'upcoming' && value.enabled === true))
     && Number.isSafeInteger(value.consentRevision) && Number(value.consentRevision) > 0 && typeof value.enabled === 'boolean'
     && Number.isSafeInteger(value.scheduleRevision) && Number(value.scheduleRevision) >= 0;
 }
 
+function sameVisit(a: SharedVisit | undefined, b: SharedVisit) {
+  return a?.date === b.date && a.time === b.time && a.hospitalName === b.hospitalName;
+}
+
+/** Restored patient schedules can have different local IDs for the same visit. */
+function uniqueVisitInput(body: unknown): unknown {
+  if (!record(body) || !Array.isArray(body.upcomingVisits)) return body;
+  const visits = body.upcomingVisits;
+  if (visits.length > MAX_SHARED_VISITS || !visits.every(isSharedVisit)) return body;
+  const unique = new Map<string, SharedVisit>();
+  for (const [index, visit] of visits.entries()) {
+    if (index && visits[index - 1].date + visits[index - 1].time > visit.date + visit.time) return body;
+    unique.set(JSON.stringify([visit.date, visit.time, visit.hospitalName]), visit);
+  }
+  return unique.size === visits.length ? body : { ...body, upcomingVisits: [...unique.values()] };
+}
+
 function snapshotInput(value: unknown, persisted = false): value is PatientSnapshotUpdate {
-  if (!record(value) || !keys(value, ['patientName', 'schedule', 'doses', ...(persisted ? ['updatedAt'] : [])], persisted ? ['nextVisit', 'timeZone'] : ['nextVisit', 'visitUpdate', 'timeZone'])
+  if (!record(value) || !keys(value, ['patientName', 'schedule', 'doses', ...(persisted ? ['updatedAt'] : [])], ['nextVisit', 'upcomingVisits', 'timeZone', ...(persisted ? ['visitTimeZone'] : ['visitUpdate'])])
     || (Object.hasOwn(value, 'timeZone') && !isCareTimeZone(value.timeZone))
+    || (Object.hasOwn(value, 'visitTimeZone') && !isCareTimeZone(value.visitTimeZone))
     || (Object.hasOwn(value, 'nextVisit') && !isSharedVisit(value.nextVisit))
+    || (Object.hasOwn(value, 'upcomingVisits') && !isSharedVisitList(value.upcomingVisits))
     || (Object.hasOwn(value, 'visitUpdate') && (!validVisitUpdate(value.visitUpdate) || (!value.visitUpdate.enabled && Object.hasOwn(value, 'nextVisit'))))
     || !name(value.patientName) || (persisted && !iso(value.updatedAt)) || !record(value.schedule)
     || !keys(value.schedule, ['frequency', 'times']) || !Array.isArray(value.doses) || value.doses.length > 300
     || !value.doses.every(dose)) return false;
+  if (!persisted && (Object.hasOwn(value, 'upcomingVisits') !== (record(value.visitUpdate) && value.visitUpdate.scope === 'upcoming'))) return false;
+  if (value.upcomingVisits && value.nextVisit) {
+    if (!sameVisit((value.upcomingVisits as SharedVisit[])[0], value.nextVisit as SharedVisit)) return false;
+  }
   const counts: Record<string, number> = { once: 1, twice: 2, three: 3 };
   const { frequency, times } = value.schedule;
   if (typeof frequency !== 'string' || !Object.hasOwn(counts, frequency) || !Array.isArray(times)
@@ -75,27 +100,57 @@ function snapshotInput(value: unknown, persisted = false): value is PatientSnaps
   return dates.length === 0 || Math.max(...dates) - Math.min(...dates) < 90 * 86400000;
 }
 
-function updateVisit(patient: Patient, input: PatientSnapshotUpdate, now: Date, isUpcoming: typeof isUpcomingVisit): { visitUpdate?: VisitUpdate; nextVisit?: SharedVisit } {
-  const previous = patient.visitUpdate;
-  let visitUpdate = previous;
-  let nextVisit = previous?.enabled ? patient.snapshot?.nextVisit : undefined;
-  const incoming = input.visitUpdate;
-  // Old tabs keep publishing medication heartbeats. Only an explicit preference for
-  // this pairing can touch a visit, and an equally recent opt-out takes precedence.
-  if (incoming && incoming.connectedAt === patient.caregiver?.connectedAt
-    && (!previous || incoming.consentRevision > previous.consentRevision
-      || (incoming.consentRevision === previous.consentRevision && (!incoming.enabled || previous.enabled)))) {
-    const scheduleRevision = Math.max(incoming.scheduleRevision, previous?.scheduleRevision ?? 0);
-    visitUpdate = { ...incoming, scheduleRevision };
-    if (!incoming.enabled) nextVisit = undefined;
-    else if (incoming.scheduleRevision === scheduleRevision) {
-      // An unchanged agenda may advance to its following visit when the former
-      // visit expires. A still-future visit needs an actual schedule edit to change.
-      const sameAgenda = previous?.enabled && incoming.scheduleRevision === previous.scheduleRevision;
-      if (!sameAgenda || !nextVisit || !isUpcoming(nextVisit, now)) nextVisit = input.nextVisit;
-    }
+type SharedAgenda = Pick<CareSnapshot, 'nextVisit' | 'upcomingVisits' | 'visitTimeZone'>;
+
+function savedVisitZone(snapshot: CareSnapshot | null) {
+  if (snapshot?.visitTimeZone) return snapshot.visitTimeZone;
+  // Freeze pre-upgrade schedules in their last known zone before replacing the medication snapshot.
+  if (snapshot?.nextVisit || snapshot?.upcomingVisits) return snapshot.timeZone ?? 'Asia/Seoul';
+}
+
+function visibleVisits(snapshot: SharedAgenda | null, preference: VisitUpdate | undefined, now: Date, visitTimeZone?: string): SharedAgenda {
+  if (!preference?.enabled || !snapshot || !visitTimeZone) return {};
+  const clock = careClock(visitTimeZone);
+  const future = (visit: SharedVisit) => clock.instant(visit.date, visit.time) > now.getTime();
+  if (preference.scope === 'upcoming' && snapshot.upcomingVisits) {
+    const remaining = snapshot.upcomingVisits.filter(future);
+    return { visitTimeZone, upcomingVisits: remaining, ...(remaining.length && { nextVisit: remaining[0] }) };
   }
-  return { ...(visitUpdate && { visitUpdate }), ...(nextVisit && isUpcoming(nextVisit, now) && { nextVisit }) };
+  return { visitTimeZone, ...(snapshot.nextVisit && future(snapshot.nextVisit) && { nextVisit: snapshot.nextVisit }) };
+}
+
+function updateVisit(patient: Patient, input: PatientSnapshotUpdate, now: Date) {
+  const previous = patient.visitUpdate;
+  const savedZone = savedVisitZone(patient.snapshot);
+  const existing = visibleVisits(patient.snapshot, previous, now, savedZone);
+  const incoming = input.visitUpdate;
+  const sameConsent = previous && incoming?.consentRevision === previous.consentRevision;
+  if (!incoming || incoming.connectedAt !== patient.caregiver?.connectedAt
+    || (previous && incoming.consentRevision < previous.consentRevision)
+    || (sameConsent && incoming.enabled && (!previous.enabled || (incoming.scope && !previous.scope)))) {
+    return { visitUpdate: previous, visits: existing };
+  }
+  const scheduleRevision = Math.max(incoming.scheduleRevision, previous?.scheduleRevision ?? 0);
+  const visitUpdate = { ...incoming, scheduleRevision };
+  // A legacy writer echoes only "enabled". That does not revoke a newer scope.
+  if (sameConsent && incoming.enabled && previous.scope) visitUpdate.scope = previous.scope;
+  if (!incoming.enabled) return { visitUpdate, visits: {} };
+  const keep = visibleVisits(existing, visitUpdate, now, savedZone);
+  if (incoming.scheduleRevision < scheduleRevision) return { visitUpdate, visits: keep };
+  const sameAgenda = previous?.enabled && incoming.scheduleRevision === previous.scheduleRevision;
+  // A different device's heartbeat cannot reinterpret the same agenda in its own time zone.
+  const zone = sameAgenda && savedZone ? savedZone : input.timeZone ?? savedZone ?? 'Asia/Seoul';
+  const updated = visibleVisits(input, visitUpdate, now, zone);
+  if (sameAgenda && existing.upcomingVisits && visitUpdate.scope === 'upcoming') {
+    // Keep already accepted appointments on equal-revision heartbeats. An expired
+    // slot may make space for another appointment just outside the old 30-visit window.
+    const list = updated.upcomingVisits;
+    const extendsWindow = list && list.length > existing.upcomingVisits.length
+      && existing.upcomingVisits.every((visit, index) => sameVisit(list[index], visit));
+    return { visitUpdate, visits: extendsWindow ? updated : keep };
+  }
+  if (sameAgenda && !incoming.scope && existing.nextVisit) return { visitUpdate, visits: keep };
+  return { visitUpdate, visits: updated };
 }
 
 function clearSharedRecords(patient: Patient): Patient {
@@ -137,6 +192,9 @@ export function validPatient(value: unknown): value is Patient {
   if (value.invite !== null && value.caregiver !== null) return false;
   if (Object.hasOwn(value, 'visitUpdate') && (!validVisitUpdate(value.visitUpdate) || !record(value.caregiver)
     || value.visitUpdate.connectedAt !== value.caregiver.connectedAt)) return false;
+  if (record(value.snapshot) && Object.hasOwn(value.snapshot, 'upcomingVisits')
+    && (!record(value.visitUpdate) || !value.visitUpdate.enabled || value.visitUpdate.scope !== 'upcoming')) return false;
+  if (record(value.snapshot) && Object.hasOwn(value.snapshot, 'visitTimeZone') && (!record(value.visitUpdate) || !value.visitUpdate.enabled)) return false;
   if (!Array.isArray(value.photos) || value.photos.length > MAX_PHOTOS || !value.photos.every(item => record(item)
     && keys(item, ['id', 'dataUri']) && identifier(item.id) && photoData(item.dataUri))) return false;
   const references = photoIds(value as Patient);
@@ -180,7 +238,7 @@ async function photoRoute(store: CareStore, patient: Patient, role: Role, path: 
 }
 
 export async function routeCare(store: CareStore, method: string, path: string, authorization: string | undefined,
-  body: unknown, now: () => number, ttl: number, isUpcoming: typeof isUpcomingVisit = isUpcomingVisit): Promise<CareResult> {
+  body: unknown, now: () => number, ttl: number): Promise<CareResult> {
   if (path === '/v1/patients' && method === 'POST') {
     if (!empty(body)) throw new HttpError(400, 'Expected an empty object.');
     const token = randomBytes(32).toString('base64url');
@@ -201,15 +259,16 @@ export async function routeCare(store: CareStore, method: string, path: string, 
   if (path.startsWith('/v1/patient/')) {
     const patient = await authenticate(store, authorization, 'patient');
     if (path === '/v1/patient/snapshot' && method === 'PUT') {
+      body = uniqueVisitInput(body);
       if (!snapshotInput(body) || (store.photoParts && body.doses.filter(item => item.photo).length > MAX_PHOTOS)) throw new HttpError(400, '공유할 기록의 이름, 일정, 날짜 또는 사진 정보를 확인해 주세요.');
       const updated = new Date(now());
       // Legacy clients publish before issuing a fresh invite. Acknowledge the upload
       // without retaining any health data until explicit re-consent via a new invite.
       if (sharingRevoked(patient)) return { status: 200, body: { updatedAt: updated.toISOString(), sharingRevoked: true } };
-      const { visitUpdate, nextVisit } = updateVisit(patient, body, updated, isUpcoming);
       const timeZone = body.timeZone ?? patient.snapshot?.timeZone;
+      const { visitUpdate, visits } = updateVisit(patient, body, updated);
       const snapshot: CareSnapshot = { patientName: body.patientName, schedule: body.schedule, doses: body.doses, ...(timeZone && { timeZone }),
-        ...(nextVisit && { nextVisit }), updatedAt: updated.toISOString() };
+        ...visits, updatedAt: updated.toISOString() };
       const next = { ...patient, snapshot, ...(visitUpdate && { visitUpdate }) };
       const references = photoIds(next);
       await store.replace({ ...next, photos: patient.photos.filter(photo => references.has(photo.id)) });
@@ -229,7 +288,8 @@ export async function routeCare(store: CareStore, method: string, path: string, 
       ...(store.photoParts && { photoTransfer: 'parts-v1' }),
       caregiverName: patient.caregiver?.name ?? null, connectedAt: patient.caregiver?.connectedAt ?? null,
       ...(sharingRevoked(patient) && { sharingRevoked: true }),
-      ...(patient.visitUpdate && { visitConsent: { revision: patient.visitUpdate.consentRevision, enabled: patient.visitUpdate.enabled } }),
+      ...(patient.visitUpdate && { visitConsent: { revision: patient.visitUpdate.consentRevision, enabled: patient.visitUpdate.enabled,
+        ...(patient.visitUpdate.scope && { scope: patient.visitUpdate.scope }) } }),
     } };
     if (path === '/v1/patient/connection' && method === 'DELETE') {
       await store.replace(clearSharedRecords(patient));
@@ -254,9 +314,21 @@ export async function routeCare(store: CareStore, method: string, path: string, 
       }
       throw new HttpError(410, '보호자 알림 서비스가 종료됐어요.');
     }
-    if (path === '/v1/caregiver/snapshot' && method === 'GET') {
+    if ((path === '/v1/caregiver/snapshot' || path === AGENDA_SNAPSHOT_PATH) && method === 'GET') {
       const snapshot = patient.snapshot && { ...patient.snapshot };
-      if (snapshot?.nextVisit && (!patient.visitUpdate?.enabled || !isUpcoming(snapshot.nextVisit, new Date(now())))) delete snapshot.nextVisit;
+      if (snapshot) {
+        const preference = patient.visitUpdate?.connectedAt === caregiver.connectedAt ? patient.visitUpdate : undefined;
+        const visits = visibleVisits(snapshot, preference, new Date(now()), savedVisitZone(snapshot));
+        delete snapshot.visitTimeZone;
+        delete snapshot.upcomingVisits;
+        delete snapshot.nextVisit;
+        if (visits.nextVisit) snapshot.nextVisit = visits.nextVisit;
+        if (path === AGENDA_SNAPSHOT_PATH && visits.visitTimeZone) snapshot.visitTimeZone = visits.visitTimeZone;
+        // Older apps strip only nextVisit from their persistent medication cache.
+        if (path === AGENDA_SNAPSHOT_PATH && preference?.scope === 'upcoming' && preference.enabled) {
+          snapshot.upcomingVisits = visits.upcomingVisits ?? (visits.nextVisit ? [visits.nextVisit] : []);
+        }
+      }
       return { status: 200, body: { snapshot, ...(store.photoParts && { photoTransfer: 'parts-v1' }), connectedAt: caregiver.connectedAt, caregiverName: caregiver.name } };
     }
     if (path === '/v1/caregiver/connection' && method === 'DELETE') {

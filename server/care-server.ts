@@ -9,7 +9,7 @@ import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { keys, record, routeCare, tokenDigest, validPatient, type CareStore, type Patient } from './care-core.ts';
+import { AGENDA_SNAPSHOT_PATH, keys, record, routeCare, tokenDigest, validPatient, type CareStore, type Patient } from './care-core.ts';
 import { HttpError } from './care-errors.ts';
 
 type State = { version: 1; patients: Patient[] };
@@ -162,7 +162,8 @@ export async function startCareServer(options: Options = {}) {
         response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
       }
       const url = new URL(request.url ?? '/', 'http://localhost');
-      if (url.search) throw new HttpError(400, 'Query parameters are not supported.');
+      const path = url.pathname + url.search;
+      if (url.search && (path !== AGENDA_SNAPSHOT_PATH || !['GET', 'OPTIONS'].includes(request.method ?? ''))) throw new HttpError(400, 'Query parameters are not supported.');
       if (request.method === 'OPTIONS') { response.statusCode = 204; response.end(); return; }
       if (request.method === 'POST' && (url.pathname === '/v1/patients' || url.pathname === '/v1/caregivers/connect')) limited(request);
       // Check credentials before accepting a potentially large photo body. The
@@ -184,7 +185,7 @@ export async function startCareServer(options: Options = {}) {
         if (url.pathname === '/v1/health' && request.method === 'GET') {
           respond(response, 200, { status: 'ok' }); return;
         }
-        const result = await serialize(() => routeCare(store, request.method ?? '', url.pathname, request.headers.authorization, body, now, ttl));
+        const result = await serialize(() => routeCare(store, request.method ?? '', path, request.headers.authorization, body, now, ttl));
         respond(response, result.status, result.body);
       } finally { queued -= 1; }
     })().catch((error: unknown) => {

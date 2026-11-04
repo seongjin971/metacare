@@ -48,3 +48,18 @@ test('visit sharing is opt-in for the current paired guardian and resets on with
   assert.equal(reconcileVisitConsent(enabled, connectedAt, { enabled: false, revision: 100 }).visitPreference?.enabled, false);
   assert.equal(reconcileVisitConsent(enabled, connectedAt, { enabled: false, revision: 101 }).visitPreference?.enabled, false);
 });
+
+test('upcoming scope persists only for the consenting pairing and reconciles with the confirmed scope', () => {
+  const connectedAt = '2026-11-01T10:00:00.000Z';
+  const legacy = { ...active, visitPreference: { connectedAt, enabled: true, revision: 100 } };
+  const agenda = { ...active, visitPreference: { ...legacy.visitPreference, scope: 'upcoming' as const, revision: 101, pending: true } };
+  assert.equal(readPatientSharingSession(legacy)?.visitPreference?.scope, undefined);
+  assert.deepEqual(readPatientSharingSession(agenda)?.visitPreference, agenda.visitPreference);
+  assert.equal(reconcileVisitConsent(agenda, connectedAt, { enabled: true, revision: 100 }), agenda);
+  assert.equal(reconcileVisitConsent(agenda, connectedAt, { enabled: true, revision: 101 }).visitPreference?.scope, undefined);
+  assert.equal(reconcileVisitConsent(legacy, connectedAt, { enabled: true, scope: 'upcoming', revision: 101 }).visitPreference?.scope, 'upcoming');
+  assert.equal(reconcileVisitConsent(agenda, connectedAt, { enabled: false, revision: 101 }).visitPreference?.enabled, false);
+  assert.equal(reconcileVisitConsent(agenda, '2026-11-02T10:00:00.000Z').visitPreference, undefined);
+  assert.equal(requestPatientRevocation(agenda).visitPreference, undefined);
+  assert.equal(readPatientSharingSession({ ...agenda, visitPreference: { ...agenda.visitPreference, scope: 'other' } })?.visitPreference, undefined);
+});
