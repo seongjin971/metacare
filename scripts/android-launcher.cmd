@@ -13,7 +13,9 @@ exit /b 1
 for %%I in ("%~dp0..") do set "APP_DIR=%%~fI"
 
 rem Reuse the existing test device. Never wipe data or target a physical phone.
-set "ANDROID_HOME=E:\Dev\Tools\Android"
+rem Use the configured SDK, otherwise the first known test-PC location.
+if not defined ANDROID_HOME for %%S in ("D:\Dev\Tools\Android" "E:\Dev\Tools\Android") do if not defined ANDROID_HOME if exist "%%~S\platform-tools\adb.exe" set "ANDROID_HOME=%%~S"
+if not defined ANDROID_HOME set "ANDROID_HOME=D:\Dev\Tools\Android"
 set "ANDROID_SDK_ROOT=%ANDROID_HOME%"
 set "ANDROID_AVD_HOME=%ANDROID_HOME%\avd"
 set "ADB=%ANDROID_HOME%\platform-tools\adb.exe"
@@ -165,7 +167,7 @@ rem The emulator console emits CR-CR-LF; FINDSTR /X tolerates its line endings.
 exit /b %errorlevel%
 
 :missing_tools
-echo [오류] E:\Dev\Tools\Android의 adb.exe 또는 emulator.exe를 찾을 수 없습니다.
+echo [오류] %ANDROID_HOME%의 adb.exe 또는 emulator.exe를 찾을 수 없습니다.
 goto failed
 
 :missing_avd
