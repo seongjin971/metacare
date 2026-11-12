@@ -70,7 +70,9 @@
     "care:migrate": "node --experimental-strip-types server/migrate-care.ts",
     "caregiver": "expo start --go --localhost --port 8082",
     "caregiver:web": "expo start --web --localhost --port 8082",
-    "caregiver:typecheck": "npm run typecheck --workspace @metacare/caregiver"
+    "caregiver:typecheck": "npm run typecheck --workspace @metacare/caregiver",
+    "apk:local": "node scripts/build-local-apk.cjs",
+    "apk:local:emulator": "node scripts/build-local-apk.cjs --emulator"
   },
   "private": true
 }

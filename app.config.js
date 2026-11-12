@@ -6,5 +6,7 @@ module.exports = ({ config }) => {
   return {
     ...config,
     android: { ...config.android, ...(firebaseFile && { googleServicesFile: firebaseFile }) },
+    // The app shows caregiver alerts only in builds that can actually receive them.
+    extra: { ...config.extra, caregiverPush: !!firebaseFile },
   };
 };

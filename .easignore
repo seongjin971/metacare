@@ -49,3 +49,6 @@ README.md
 *.apk
 *.sha256
 *.aab
+
+# Gradle output inside local native modules (created by local builds)
+modules/*/android/build/

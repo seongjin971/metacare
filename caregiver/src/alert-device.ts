@@ -5,8 +5,13 @@ import type { DevicePushToken, NotificationResponse } from 'expo-notifications';
 
 export const CARE_ALERT_TYPE = 'care-overdue';
 
-export const supportsCareAlerts = (Platform.OS === 'android' || Platform.OS === 'ios')
-  && !isRunningInExpoGo();
+const installedApp = (Platform.OS === 'android' || Platform.OS === 'ios') && !isRunningInExpoGo();
+// Android builds deliver through FCM only when built with the Firebase app config (see app.config.js).
+const pushConfigured = Platform.OS === 'ios' || Constants.expoConfig?.extra?.caregiverPush === true;
+
+export const supportsCareAlerts = installedApp && pushConfigured;
+/** An installed build without push setup hides the alert option instead of offering one that cannot work. */
+export const careAlertsHidden = installedApp && !pushConfigured;
 
 // Import only in an installed mobile app. Expo Go has no remote push service.
 function notifications(): typeof import('expo-notifications') {

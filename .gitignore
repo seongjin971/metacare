@@ -66,3 +66,6 @@ care-runtime/
 
 # Firebase app config for caregiver push (provided to EAS as a file env var)
 google-services.json
+
+# Gradle output inside local native modules (created by local builds)
+modules/*/android/build/

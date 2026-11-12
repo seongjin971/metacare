@@ -4,7 +4,7 @@ import { Card, Icon, s } from '../../../src/ui';
 import { useRoleActions } from '../../../src/role-actions';
 import { MotionPressable as Pressable, useReducedMotion } from '../../../src/motion';
 import { OVERDUE_THRESHOLDS, type OverdueThreshold } from '../care-status';
-import { supportsCareAlerts } from '../alert-device';
+import { careAlertsHidden, supportsCareAlerts } from '../alert-device';
 import { CareButton, CarePage, colors, shortTimestamp, styles } from '../components';
 import { useCaregiver } from '../store';
 
@@ -56,7 +56,7 @@ export default function SettingsScreen() {
       <View><Text style={s.label}>환자 연락처 · 선택</Text><TextInput accessibilityLabel="환자 연락처" value={draft.phone} onChangeText={phone => update({ phone })} placeholder="전화번호" placeholderTextColor="#8C99A4" keyboardType="phone-pad" maxLength={25} style={s.input} /></View>
       <Text style={s.micro}>{mode === 'demo' ? '환자 연결 전에는 변경한 내용이 이번 사용에만 적용돼요.' : '별명과 연락처는 이 기기에만 저장돼요.'}</Text>
     </Card>
-    <Card style={{ gap: 12 }}>
+    {!careAlertsHidden && <Card style={{ gap: 12 }}>
       <Text style={s.section}>복약 미기록 알림</Text>
       <Text style={s.body}>복약 예정 시각에서 얼마나 기다린 뒤 알려드릴까요?</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{OVERDUE_THRESHOLDS.map(threshold => <Pressable key={threshold} accessibilityRole="button"
@@ -87,8 +87,8 @@ export default function SettingsScreen() {
       {canRegister && !alerts.confirmed && (alerts.error
         ? <CareButton title="알림 설정 다시 확인" secondary onPress={() => void alerts.refresh()} />
         : <Text style={s.micro}>알림 설정 확인 중…</Text>)}
-      <Text style={s.micro}>미기록 알림은 서버에 기록이 도착하지 않았다는 뜻이에요. 실제로 약을 먹지 않았다는 뜻은 아니에요.</Text>
-    </Card>
+      <Text style={s.micro}>미기록 알림은 환자의 기록이 아직 도착하지 않았다는 뜻이에요. 실제로 약을 먹지 않았다는 뜻은 아니에요.</Text>
+    </Card>}
     {(formError || error) && <Text accessibilityRole="alert" style={[s.body, { color: colors.amber }]}>{formError || error}</Text>}
     {saved && <Text accessibilityLiveRegion="polite" style={[s.body, { color: colors.teal }]}>{mode === 'demo' ? '설정을 적용했어요.' : '설정을 저장했어요.'}</Text>}
     <CareButton title={saving ? '적용 중…' : mode === 'demo' ? '설정 적용' : '설정 저장'} disabled={saving || busy || !dirty} onPress={() => void save()} />
