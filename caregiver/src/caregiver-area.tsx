@@ -12,7 +12,6 @@ import { isCalendarDate } from '../../src/calendar';
 type CaregiverHome = '/' | '/caregiver';
 
 function Navigation({ home }: { home: CaregiverHome }) {
-  const history = home === '/' ? '/history' : '/caregiver/history';
   const settings = home === '/' ? '/settings' : '/caregiver/settings';
   const { ready, mode, data, offerAlerts, dismissAlertOffer } = useCaregiver();
   const handledAlert = useRef('');
@@ -39,12 +38,12 @@ function Navigation({ home }: { home: CaregiverHome }) {
       if (payload?.type !== CARE_ALERT_TYPE) return;
       if (payload.connectedAt === connectedAt && isCalendarDate(payload.date) && handledAlert.current !== id) {
         handledAlert.current = id;
-        router.navigate({ pathname: history, params: { date: payload.date } });
+        router.navigate({ pathname: home, params: { date: payload.date } });
       }
       consumeAlertTap();
     });
     return () => subscription.remove();
-  }, [root?.key, mode, connectedAt, history]);
+  }, [root?.key, mode, connectedAt, home]);
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, backgroundColor: C.bg }}><ActivityIndicator color={colors.teal} /><Text style={s.body}>연결 정보를 불러오는 중이에요.</Text></View>;
   if (mode === 'disconnected') return <ConnectScreen />;
   return <><Tabs backBehavior="history" screenOptions={{
@@ -55,7 +54,9 @@ function Navigation({ home }: { home: CaregiverHome }) {
     tabBarLabelStyle: { fontSize: 12, fontWeight: '600', marginTop: 4 },
     sceneStyle: { backgroundColor: C.bg }, tabBarHideOnKeyboard: true,
   }}>
-    {([['index', '오늘', 'today-outline'], ['history', '기록', 'time-outline'], ['visits', '진료 일정', 'calendar-outline'], ['settings', '관리', 'options-outline']] as [string, string, IconName][]).map(([name, title, icon]) => <Tabs.Screen key={name} name={name} options={{ title, tabBarIcon: ({ color }) => <Icon name={icon} color={String(color)} size={22} /> }} />)}
+    {([['index', '복약', 'medical-outline'], ['visits', '진료 일정', 'calendar-outline'], ['settings', '관리', 'options-outline']] as [string, string, IconName][]).map(([name, title, icon]) => <Tabs.Screen key={name} name={name} options={{ title, tabBarIcon: ({ color }) => <Icon name={icon} color={String(color)} size={22} /> }} />)}
+    {/* Kept only to redirect older links into the medication tab. href: null would also drop the route from linking. */}
+    <Tabs.Screen name="history" options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }} />
   </Tabs>
     <Modal visible={mode === 'connected' && supportsCareAlerts && offerAlerts} transparent onRequestClose={dismissAlertOffer}>
       <View style={styles.modalBackdrop}><View accessibilityViewIsModal style={styles.modalCard}>
