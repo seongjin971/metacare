@@ -47,6 +47,6 @@ export async function careRequest<T>(path: string, options: { method?: string; t
     return data as T;
   } catch (error) {
     if (error instanceof CareApiError) throw error;
-    throw new CareApiError('연결 서버에 닿지 못했어요. 인터넷 연결과 서버 상태를 확인해 주세요.');
+    throw new CareApiError('인터넷에 연결되지 않았어요. 연결을 확인한 뒤 다시 시도해 주세요.');
   } finally { clearTimeout(timeout); }
 }

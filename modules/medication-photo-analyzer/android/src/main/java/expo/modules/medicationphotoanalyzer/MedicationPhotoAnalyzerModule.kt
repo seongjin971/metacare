@@ -2,8 +2,12 @@ package expo.modules.medicationphotoanalyzer
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -16,6 +20,8 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
+import java.io.FileOutputStream
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -25,6 +31,16 @@ class MedicationPhotoAnalyzerModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("MedicationPhotoAnalyzer")
+
+    // Burns the capture date and time into the photo so the caregiver sees when it was taken.
+    // Returns a new JPEG in the app cache; the original camera file is left untouched.
+    AsyncFunction("stampPhoto") { uri: String, label: String ->
+      try {
+        stamp(uri, label)
+      } catch (_: Exception) {
+        throw PhotoStampException()
+      }
+    }
 
     // Expo dispatches AsyncFunction's body off the JavaScript thread.
     AsyncFunction("analyzePhoto") { uri: String, promise: Promise ->
@@ -111,6 +127,66 @@ class MedicationPhotoAnalyzerModule : Module() {
     }
   }
 
+  private fun stamp(uri: String, label: String): Map<String, Any> {
+    require(label.isNotBlank() && label.length <= 80)
+    val context = appContext.reactContext ?: throw IllegalStateException("No application context")
+    val file = checkedFile(uri)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.path, bounds)
+    require(bounds.outWidth in 1..20000 && bounds.outHeight in 1..20000)
+    val orientation = ExifInterface(file).getAttributeInt(
+      ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+    )
+    var sample = 1
+    while (max(bounds.outWidth, bounds.outHeight) / sample > 4096) sample *= 2
+    val decoded = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply {
+      inSampleSize = sample
+      inPreferredConfig = Bitmap.Config.ARGB_8888
+      inMutable = true
+    }) ?: throw IllegalArgumentException("Unreadable image")
+    var bitmap = orient(decoded, orientation)
+    if (bitmap !== decoded) decoded.recycle()
+    if (!bitmap.isMutable) {
+      val copy = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+      bitmap.recycle()
+      bitmap = copy
+    }
+    try {
+      drawStamp(bitmap, label)
+      val output = File(context.cacheDir, "dose-stamped-${UUID.randomUUID()}.jpg")
+      FileOutputStream(output).use { stream ->
+        require(bitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream))
+      }
+      return mapOf("uri" to Uri.fromFile(output).toString(), "width" to bitmap.width, "height" to bitmap.height)
+    } finally {
+      bitmap.recycle()
+    }
+  }
+
+  /** A dark rounded label in the bottom-left corner, sized to the photo and never wider than it. */
+  private fun drawStamp(bitmap: Bitmap, label: String) {
+    val canvas = Canvas(bitmap)
+    val shorter = minOf(bitmap.width, bitmap.height).toFloat()
+    val margin = shorter * 0.03f
+    val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.WHITE
+      typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+      textSize = shorter * 0.045f
+    }
+    val available = bitmap.width - margin * 2
+    val padding = text.textSize * 0.6f
+    val measured = text.measureText(label) + padding * 2
+    if (measured > available) text.textSize *= available / measured
+    val pad = text.textSize * 0.6f
+    val metrics = text.fontMetrics
+    val bottom = bitmap.height - margin
+    val top = bottom - (metrics.descent - metrics.ascent) - pad * 2
+    val box = RectF(margin, top, margin + text.measureText(label) + pad * 2, bottom)
+    val background = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(160, 0, 0, 0) }
+    canvas.drawRoundRect(box, pad * 0.7f, pad * 0.7f, background)
+    canvas.drawText(label, margin + pad, top + pad - metrics.ascent, text)
+  }
+
   private fun checkedFile(value: String): File {
     val context = appContext.reactContext ?: throw IllegalStateException("No application context")
     val uri = Uri.parse(value)
@@ -177,3 +253,6 @@ class MedicationPhotoAnalyzerModule : Module() {
     }
   }
 }
+
+private class PhotoStampException :
+  expo.modules.kotlin.exception.CodedException("ERR_PHOTO_STAMP", "사진을 저장할 준비를 하지 못했어요. 다시 촬영해 주세요.", null)

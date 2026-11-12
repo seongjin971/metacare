@@ -2,11 +2,21 @@ import CoreGraphics
 import ExpoModulesCore
 import Foundation
 import ImageIO
+import UIKit
 import Vision
 
 public class MedicationPhotoAnalyzerModule: Module {
   public func definition() -> ModuleDefinition {
     Name("MedicationPhotoAnalyzer")
+
+    // Burns the capture date and time into the photo so the caregiver sees when it was taken.
+    AsyncFunction("stampPhoto") { (uri: String, label: String) throws -> [String: Any] in
+      do {
+        return try self.stamp(uri, label)
+      } catch {
+        throw PhotoStampException()
+      }
+    }
 
     AsyncFunction("analyzePhoto") { (uri: String, promise: Promise) in
       let result = PhotoAnalysisResult(promise)
@@ -67,6 +77,52 @@ public class MedicationPhotoAnalyzerModule: Module {
         result.reject(error as? Exception ?? PhotoAnalysisException())
       }
     }
+  }
+
+  /** A dark rounded label in the bottom-left corner, sized to the photo and never wider than it. */
+  private func stamp(_ uri: String, _ label: String) throws -> [String: Any] {
+    guard !label.trimmingCharacters(in: .whitespaces).isEmpty, label.count <= 80 else { throw PhotoStampException() }
+    let url = try checkedFile(uri)
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceThumbnailMaxPixelSize: 4096,
+      kCGImageSourceShouldCacheImmediately: true
+    ]
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+      throw PhotoStampException()
+    }
+    let size = CGSize(width: image.width, height: image.height)
+    let format = UIGraphicsImageRendererFormat.default()
+    format.scale = 1
+    format.opaque = true
+    let data = UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.88) { _ in
+      UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
+      let shorter = min(size.width, size.height)
+      let margin = shorter * 0.03
+      var fontSize = shorter * 0.045
+      var font = UIFont.boldSystemFont(ofSize: fontSize)
+      var textSize = (label as NSString).size(withAttributes: [.font: font])
+      let available = size.width - margin * 2
+      let measured = textSize.width + fontSize * 1.2
+      if measured > available {
+        fontSize *= available / measured
+        font = UIFont.boldSystemFont(ofSize: fontSize)
+        textSize = (label as NSString).size(withAttributes: [.font: font])
+      }
+      let pad = fontSize * 0.6
+      let box = CGRect(x: margin, y: size.height - margin - textSize.height - pad * 2,
+                       width: textSize.width + pad * 2, height: textSize.height + pad * 2)
+      UIColor(white: 0, alpha: 0.63).setFill()
+      UIBezierPath(roundedRect: box, cornerRadius: pad * 0.7).fill()
+      (label as NSString).draw(at: CGPoint(x: box.minX + pad, y: box.minY + pad),
+                               withAttributes: [.font: font, .foregroundColor: UIColor.white])
+    }
+    let caches = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    let output = caches.appendingPathComponent("dose-stamped-\(UUID().uuidString).jpg")
+    try data.write(to: output, options: .atomic)
+    return ["uri": output.absoluteString, "width": image.width, "height": image.height]
   }
 
   private func checkedFile(_ value: String) throws -> URL {
@@ -135,6 +191,10 @@ public class MedicationPhotoAnalyzerModule: Module {
     let variance = innerCount == 0 ? 0.0 : max(0.0, squared / Double(innerCount) - mean * mean)
     return Quality(mean: total / Double(count), darkRatio: Double(dark) / Double(count), laplacianVariance: variance)
   }
+}
+
+private final class PhotoStampException: Exception {
+  override var reason: String { "사진을 저장할 준비를 하지 못했어요. 다시 촬영해 주세요." }
 }
 
 private final class PhotoAnalysisException: Exception {

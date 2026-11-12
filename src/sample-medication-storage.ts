@@ -7,15 +7,15 @@ function firstDay(doses: Dose[], now: Date) {
   return doses.reduce((first, dose) => dose.date < first ? dose.date : first, localDateKey(now));
 }
 
-function requireVerifiedCompletions(doses: Dose[]) {
-  if (doses.some(dose => dose.status === 'taken' && !dose.photo?.verification)) {
-    throw new Error('약봉투 사진 인증이 없는 복약 기록은 저장할 수 없어요.');
+function requirePhotoCompletions(doses: Dose[]) {
+  if (doses.some(dose => dose.status === 'taken' && !dose.photo)) {
+    throw new Error('약봉투 사진이 없는 복약 기록은 저장할 수 없어요.');
   }
 }
 
 /** Only actual schedules and their photo-backed records enter this device-only key. */
 export function serializeSampleMedication(state: AppState): string {
-  requireVerifiedCompletions(state.doses);
+  requirePhotoCompletions(state.doses);
   return JSON.stringify({ doses: state.doses, medicationSchedule: state.medicationSchedule });
 }
 
@@ -24,7 +24,7 @@ export function restoreSampleMedication(raw: string | null, now = new Date()): A
   if (raw !== null) {
     const saved = JSON.parse(raw);
     live = validateLoadedState({ ...live, doses: saved.doses, medicationSchedule: saved.medicationSchedule });
-    requireVerifiedCompletions(live.doses);
+    requirePhotoCompletions(live.doses);
     live = ensureDailyDoses(live, now);
   }
   const initial = createSamplePatientState(new Date(`${firstDay(live.doses, now)}T12:00:00`));

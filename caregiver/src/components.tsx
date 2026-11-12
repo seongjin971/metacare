@@ -4,6 +4,7 @@ import type { SharedDose } from '../../shared/care-types';
 import { Card, Icon, Page, s, type IconName } from '../../src/ui';
 import { MotionPressable as Pressable, useReducedMotion } from '../../src/motion';
 import { getDoseState, isSnapshotStale } from './care-status';
+import { relativeTime } from '../../src/relative-time';
 import { useCaregiver } from './store';
 
 export const colors = { ink: '#183044', teal: '#16766F', soft: '#EDF6F4', amber: '#9A6225', amberSoft: '#FCF4E8', line: '#E4EBEE', muted: '#71808B' };
@@ -37,20 +38,20 @@ export function shortTimestamp(value: string | null | undefined) {
 export function SyncStatus() {
   const { mode, data, now, fetchedAt, networkError, syncing, refresh, error } = useCaregiver();
   if (mode === 'demo') return null;
-  const stale = isSnapshotStale(data?.snapshot?.updatedAt, fetchedAt, now);
-  return <View style={{ gap: 5 }}>
-    <View style={[s.row, { alignItems: 'flex-start', gap: 8 }]}>
-      <View style={{ flex: 1, paddingTop: 5, gap: 4 }}>
-        <Text accessibilityLiveRegion="polite" style={[s.micro, { color: networkError || stale ? colors.amber : colors.teal }]}>{networkError ? '오프라인 또는 연결 불안정' : !fetchedAt ? '연결 확인 중' : stale ? '최근 기록 확인 필요' : '서버 연결됨'}</Text>
-        <Text style={s.micro}>최근 수신 {shortTimestamp(fetchedAt)}</Text>
-        <Text style={s.micro}>환자 기록 갱신 {shortTimestamp(data?.snapshot?.updatedAt)}</Text>
-      </View>
-      <Pressable accessibilityRole="button" accessibilityLabel="공유 기록 새로고침" accessibilityState={{ disabled: syncing }} disabled={syncing} onPress={() => void refresh()} style={styles.refresh}>
-        {syncing ? <ActivityIndicator size="small" color={colors.teal} /> : <Icon name="refresh-outline" color={colors.teal} size={18} />}
-        <Text style={{ color: colors.teal, fontSize: 13, fontWeight: '600' }}>{syncing ? '확인 중' : '새로고침'}</Text>
-      </Pressable>
-    </View>
-    {(networkError || stale) && <Text style={s.micro}>마지막으로 받은 정보예요. 환자의 새 기록이 아직 전달되지 않았을 수 있어요.</Text>}
+  const updatedAt = data?.snapshot?.updatedAt;
+  const stale = isSnapshotStale(updatedAt, fetchedAt, now);
+  const updated = relativeTime(updatedAt, now);
+  // The screen refreshes on its own; a retry button appears only when that is failing.
+  return <View style={{ gap: 8 }}>
+    <Text accessibilityLiveRegion="polite" style={[s.micro, (networkError || stale) && { color: colors.amber }]}>{
+      networkError ? '인터넷에 연결되지 않아 마지막으로 받은 기록을 보여드려요.'
+        : !fetchedAt ? '기록을 불러오는 중이에요.'
+        : stale ? `${updated ?? '한동안'} 이후 환자 휴대폰에서 새 기록이 오지 않았어요.`
+        : updated ? `${updated} 업데이트` : '아직 받은 기록이 없어요.'}</Text>
+    {networkError && <Pressable accessibilityRole="button" accessibilityLabel="다시 시도" accessibilityState={{ disabled: syncing }} disabled={syncing} onPress={() => void refresh()} style={styles.refresh}>
+      {syncing ? <ActivityIndicator size="small" color={colors.teal} /> : <Icon name="refresh-outline" color={colors.teal} size={18} />}
+      <Text style={{ color: colors.teal, fontSize: 13, fontWeight: '600' }}>{syncing ? '확인 중' : '다시 시도'}</Text>
+    </Pressable>}
     {error && !networkError && <Text accessibilityRole="alert" style={[s.micro, { color: colors.amber }]}>{error}</Text>}
   </View>;
 }

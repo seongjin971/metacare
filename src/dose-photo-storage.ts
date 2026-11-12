@@ -2,7 +2,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { MAX_PHOTO_BYTES } from '../shared/care-photo-parts';
 import { normalizeDosePhoto, normalizePhotoVerification, type DosePhoto, type PhotoVerification } from './dose-photo';
 
-export type DosePhotoCapture = { uri: string; capturedAt: string; width: number; height: number; verification: PhotoVerification };
+export type DosePhotoCapture = { uri: string; capturedAt: string; width: number; height: number; verification?: PhotoVerification };
 
 function directory() {
   return new Directory(Paths.document, 'dose-photos');
@@ -20,7 +20,7 @@ export async function saveDosePhoto(capture: DosePhotoCapture): Promise<DosePhot
     capturedAt: capture.capturedAt,
     width: capture.width,
     height: capture.height,
-    verification: normalizePhotoVerification(capture.verification, capture.capturedAt),
+    ...(capture.verification && { verification: normalizePhotoVerification(capture.verification, capture.capturedAt) }),
   });
   if (typeof capture.uri !== 'string' || !capture.uri.startsWith('file://')) {
     throw new Error('촬영한 사진을 찾을 수 없어요. 다시 촬영해 주세요.');

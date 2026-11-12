@@ -24,14 +24,15 @@ test('reopening never overlays a fabricated completion on an observed day', () =
   assert.deepEqual(restoreSampleMedication(serializeSampleMedication(undone), today).doses, initial.doses);
 });
 
-test('unverified new completions are rejected on both write and restore', () => {
+test('completions without a photo are rejected on both write and restore; a photo without the pouch check is kept', () => {
   const today = new Date(2026, 10, 3, 12);
   const state = restoreSampleMedication(null, today);
-  const photo = photoFor(today);
-  for (const invalid of [undefined, { ...photo, verification: undefined }]) {
-    const doses = state.doses.map((dose, index) => index === 0
-      ? { ...dose, status: 'taken' as const, takenAt: today.toISOString(), photo: invalid } : dose);
-    assert.throws(() => serializeSampleMedication({ ...state, doses }));
-    assert.throws(() => restoreSampleMedication(JSON.stringify({ medicationSchedule: state.medicationSchedule, doses }), today));
-  }
+  const { verification: _verification, ...stamped } = photoFor(today);
+  const withPhoto = (photo: typeof stamped | undefined) => state.doses.map((dose, index) => index === 0
+    ? { ...dose, status: 'taken' as const, takenAt: today.toISOString(), photo } : dose);
+  const missing = withPhoto(undefined);
+  assert.throws(() => serializeSampleMedication({ ...state, doses: missing }));
+  assert.throws(() => restoreSampleMedication(JSON.stringify({ medicationSchedule: state.medicationSchedule, doses: missing }), today));
+  const kept = withPhoto(stamped);
+  assert.doesNotThrow(() => serializeSampleMedication({ ...state, doses: kept }));
 });

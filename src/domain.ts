@@ -32,8 +32,13 @@ export type Dose = {
 };
 
 export type Activity = { id: string; text: string; createdAt: string };
-/** Shown to the paired caregiver. Its presence also marks first-run setup as finished. */
-export type PatientProfile = { name: string };
+/**
+ * Shown to the paired caregiver. Its presence also marks first-run setup as finished.
+ * startedAt is set only for a brand-new patient: doses already past on that day are not expected.
+ */
+export type PatientProfile = { name: string; startedAt?: string };
+/** A dose this many minutes past its time at setup is not expected; matches the overdue grace period. */
+const START_GRACE_MINUTES = 30;
 export const MAX_PATIENT_NAME = 40;
 
 export type AppState = {
@@ -111,13 +116,20 @@ function withActivity(state: AppState, text: string, now: Date): AppState {
   return { ...state, activity: [{ id: id('activity', now), text, createdAt: now.toISOString() }, ...state.activity] };
 }
 
-function dosesForDate(date: string, schedule: MedicationSchedule): Dose[] {
+function dosesForDate(date: string, schedule: MedicationSchedule, startedAt?: string): Dose[] {
   const option = MEDICATION_FREQUENCIES.find(item => item.value === schedule.frequency)!;
-  return schedule.times.map((time, index) => ({
+  const started = startedAt ? new Date(startedAt) : undefined;
+  return schedule.times.map((time, index): Dose => ({
     id: `dose-${date}-${time.replace(':', '')}`, date, time, status: 'pending',
     label: schedule.frequency === 'once' ? '복용약' : `${option.timeLabels[index]} 복용약`,
     description: '설정한 복약 일정',
-  }));
+  })).filter(dose => !started || localDateKey(started) !== date
+    || localDateTime(date, dose.time).getTime() + START_GRACE_MINUTES * 60000 > started.getTime());
+}
+
+/** True on the day a new patient finished setup, when doses before that moment were left out. */
+export function startedOn(state: AppState, date: string): boolean {
+  return !!state.profile?.startedAt && localDateKey(new Date(state.profile.startedAt)) === date;
 }
 
 export function createInitialState(now = new Date()): AppState {
@@ -243,8 +255,7 @@ export function recordDose(state: AppState, doseId: string, taken: boolean, now 
   const capturedPhoto = taken ? normalizeDosePhoto(photo) : undefined;
   if (capturedPhoto) {
     if (Date.parse(capturedPhoto.capturedAt) > now.getTime()) throw new Error('사진 촬영 시간을 확인해 주세요.');
-    if (!capturedPhoto.verification) throw new Error('약봉투 사진 확인이 필요해요. 다시 촬영해 주세요.');
-    if (Date.parse(capturedPhoto.verification.checkedAt) > now.getTime()) throw new Error('사진 확인 시간을 확인해 주세요.');
+    if (capturedPhoto.verification && Date.parse(capturedPhoto.verification.checkedAt) > now.getTime()) throw new Error('사진 확인 시간을 확인해 주세요.');
     if (state.doses.some(item => item.photo?.id === capturedPhoto.id)) throw new Error('이미 기록에 사용한 사진이에요. 새로 촬영해 주세요.');
   }
   const doses = state.doses.map((item): Dose => {
@@ -255,7 +266,7 @@ export function recordDose(state: AppState, doseId: string, taken: boolean, now 
     delete pendingDose.photo;
     return pendingDose;
   });
-  return withActivity({ ...state, doses }, `${formatDate(dose.date)} ${dose.time} ${dose.label}${taken ? ' 사진 인증 완료 · 사진과 함께 남긴 환자 자가 기록' : '의 복약 기록을 취소했어요'}`, now);
+  return withActivity({ ...state, doses }, `${formatDate(dose.date)} ${dose.time} ${dose.label}${taken ? ' 사진으로 기록했어요' : '의 복약 기록을 취소했어요'}`, now);
 }
 
 export function normalizePatientName(input: string): string {
@@ -267,7 +278,22 @@ export function normalizePatientName(input: string): string {
 export function setPatientName(state: AppState, input: string): AppState {
   const name = normalizePatientName(input);
   if (state.profile?.name === name) return state;
-  return { ...state, profile: { name } };
+  return { ...state, profile: { ...state.profile, name } };
+}
+
+/**
+ * Finish first-run setup. A patient with no recorded dose starts now: today's doses whose time
+ * has already passed are dropped instead of appearing missed. Upgraded users keep their day.
+ */
+export function completeSetup(state: AppState, name: string, schedule: MedicationSchedule, now = new Date()): AppState {
+  validNow(now);
+  const fresh = !state.doses.some(dose => dose.status === 'taken');
+  const profile: PatientProfile = { name: normalizePatientName(name), ...(fresh && { startedAt: now.toISOString() }) };
+  const scheduled = setMedicationSchedule({ ...state, profile }, schedule, now);
+  if (!fresh) return scheduled;
+  const today = localDateKey(now);
+  return { ...scheduled, doses: [...scheduled.doses.filter(dose => dose.date !== today),
+    ...dosesForDate(today, scheduled.medicationSchedule, profile.startedAt)] };
 }
 
 export function setSharing(state: AppState, recipient: 'caregiver' | 'hospital', enabled: boolean, now = new Date()): AppState {
@@ -294,7 +320,9 @@ export function ensureDailyDoses(state: AppState, now = new Date()): AppState {
   const today = localDateKey(now);
   // A day's rows are a snapshot. Settings changes must never refill or rewrite it on reload.
   if (state.doses.some(item => item.date === today)) return state;
-  return { ...state, doses: [...state.doses, ...dosesForDate(today, state.medicationSchedule)] };
+  const doses = dosesForDate(today, state.medicationSchedule, state.profile?.startedAt);
+  // A late setup can leave no dose today; keep the same state rather than rewriting it every refresh.
+  return doses.length ? { ...state, doses: [...state.doses, ...doses] } : state;
 }
 
 export function setMedicationSchedule(state: AppState, input: MedicationSchedule, now = new Date()): AppState {
@@ -305,7 +333,7 @@ export function setMedicationSchedule(state: AppState, input: MedicationSchedule
   const sameSchedule = state.medicationSchedule.frequency === medicationSchedule.frequency
     && state.medicationSchedule.times.length === medicationSchedule.times.length
     && state.medicationSchedule.times.every((time, index) => time === medicationSchedule.times[index]);
-  const replacement = dosesForDate(today, medicationSchedule);
+  const replacement = dosesForDate(today, medicationSchedule, state.profile?.startedAt);
   const sameToday = todayDoses.length === replacement.length
     && todayDoses.every((dose, index) => dose.time === replacement[index].time && dose.label === replacement[index].label);
   if (sameSchedule && (recordedToday || sameToday)) return state;
@@ -390,8 +418,9 @@ export function validateLoadedState(value: unknown): AppState {
         && (!item.photo.verification || Date.parse(item.photo.verification.checkedAt) <= Date.parse(item.takenAt))))
       : item.takenAt === undefined && item.photo === undefined))) return invalid();
   if (!validArray(value.activity, (item) => hasIdAndCreatedAt(item) && isString(item.text, 500) && !!item.text.trim())) return invalid();
-  if (value.profile !== undefined && (!isObject(value.profile) || Object.keys(value.profile).join() !== 'name'
-    || !isCareName(value.profile.name, MAX_PATIENT_NAME))) return invalid();
+  if (value.profile !== undefined && (!isObject(value.profile) || !Object.keys(value.profile).every(key => key === 'name' || key === 'startedAt')
+    || !isCareName(value.profile.name, MAX_PATIENT_NAME)
+    || (value.profile.startedAt !== undefined && !isTimestamp(value.profile.startedAt)))) return invalid();
   const state = value as AppState;
   const booked = state.appointments.filter((item) => item.status === 'confirmed').map((item) => `${item.date}-${item.time}`);
   const doses = state.doses.map((item) => `${item.date}-${item.time}`);

@@ -3,6 +3,8 @@ import type { Pool, PoolClient } from 'pg';
 import { AGENDA_SNAPSHOT_PATH, hash, photoIds, routeCare, tokenDigest, type CareStore, type Patient, type Role } from './care-core.ts';
 import { HttpError } from './care-errors.ts';
 import { pruneVercelPhotos, routeVercelPhoto } from './vercel-photos.ts';
+import { parseOverdueSettings, type EnqueueOverdue } from './overdue.ts';
+import { getOverdueSettings, reconcileOverdue, setOverdueSettings } from './vercel-overdue.ts';
 
 const snapshotLimit = 256 * 1024;
 const photoPartLimit = 4_200_000; // 3 MiB base64 plus JSON, below Vercel's 4.5 MB request limit.
@@ -10,7 +12,8 @@ const tenMinutes = 10 * 60_000;
 const patientColumns = 'id, token_hash AS "tokenHash", snapshot, visit_update AS "visitUpdate", invite, caregiver, sharing_revoked AS "sharingRevoked"';
 const tokenColumns: Record<Role, string> = { patient: 'token_hash', caregiver: "(caregiver->>'tokenHash')" };
 
-function transactionStore(client: PoolClient): CareStore {
+/** Without a queue (local tests, misconfigured deploys) caregiver alerts stay off rather than half-working. */
+function transactionStore(client: PoolClient, now: () => number, enqueue?: EnqueueOverdue): CareStore {
   async function find(column: string, value: string) {
     // column is a fixed expression selected below, never taken from the request.
     const result = await client.query<Omit<Patient, 'photos'>>(
@@ -35,7 +38,15 @@ function transactionStore(client: PoolClient): CareStore {
       await client.query('UPDATE metacare_patients SET snapshot=$2, visit_update=$3, invite=$4, caregiver=$5, sharing_revoked=$6 WHERE id=$1',
         [patient.id, patient.snapshot, patient.visitUpdate ?? null, patient.invite, patient.caregiver, patient.sharingRevoked ?? false]);
       await pruneVercelPhotos(client, patient.id, patient.caregiver ? [...photoIds(patient)] : []);
+      if (enqueue) await reconcileOverdue(client, patient, now(), enqueue);
     },
+    ...(enqueue && {
+      async alerts(patient: Patient, method: string, body: unknown, at: number) {
+        const value = method === 'GET' ? await getOverdueSettings(client, patient)
+          : await setOverdueSettings(client, patient, parseOverdueSettings(body), at, enqueue);
+        return { status: 200, body: value };
+      },
+    }),
     photoParts: (...args) => routeVercelPhoto(client, ...args),
   };
 }
@@ -123,7 +134,7 @@ async function rateLimit(pool: Pool, request: Request, now: number) {
   await countAttempt(pool, 'all', now, 3000);
 }
 
-type Options = { now?: () => number; allowedOrigins?: string[] };
+type Options = { now?: () => number; allowedOrigins?: string[]; enqueue?: EnqueueOverdue };
 
 function isDeployedWebOrigin(value: string): boolean {
   try {
@@ -174,7 +185,7 @@ export function createVercelCareHandler(pool: Pool, options: Options = {}) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const result = await routeCare(transactionStore(client), request.method, path, authorization, body, now, tenMinutes);
+        const result = await routeCare(transactionStore(client, now, options.enqueue), request.method, path, authorization, body, now, tenMinutes);
         await client.query('COMMIT');
         return Response.json(result.body, { status: result.status, headers });
       } catch (error) {

@@ -6,18 +6,17 @@ import {
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, C, Icon, s } from './ui';
-import { verifyDosePhoto, type DoseCapture, type VerifiedDoseCapture } from './verify-dose-photo';
-import { doseSlot } from './medicine-pouch-check';
+import { stampDosePhoto, type DoseCapture } from './stamp-dose-photo';
 import { choosePictureSize } from './picture-size';
 import { FadeIn, MotionPressable as Pressable, useReducedMotion } from './motion';
 
 type Props = {
   label: string;
   onClose: () => void;
-  onSave: (capture: VerifiedDoseCapture, canCommit: () => boolean) => Promise<boolean>;
+  onSave: (capture: DoseCapture, canCommit: () => boolean) => Promise<boolean>;
 };
 
-/** A new live-camera capture is the only route to the save callback. */
+/** A new live-camera capture, stamped with its time and confirmed by the patient, is the only route to the save callback. */
 export function DoseCamera({ label, onClose, onSave }: Props) {
   const reducedMotion = useReducedMotion();
   const inset = useSafeAreaInsets();
@@ -25,7 +24,7 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
   const alive = useRef(true);
   const active = useRef(AppState.currentState === 'active');
   const captureSession = useRef(0);
-  const busyRef = useRef<'permission' | 'capture' | 'verify' | 'save' | null>(null);
+  const busyRef = useRef<'permission' | 'capture' | 'stamp' | 'save' | null>(null);
   const [busy, setBusy] = useState<typeof busyRef.current>(null);
   const [permission, requestPermission, getPermission] = useCameraPermissions({ get: false });
   const [checkingPermission, setCheckingPermission] = useState(true);
@@ -36,7 +35,7 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
   const [mountFailed, setMountFailed] = useState(false);
   const [error, setError] = useState('');
   const [capture, setCapture] = useState<DoseCapture | null>(null);
-  const [verified, setVerified] = useState<VerifiedDoseCapture | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [pictureSize, setPictureSize] = useState<string | undefined>();
   const sizeChecked = useRef(false);
 
@@ -69,7 +68,7 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
       setReady(false);
       if (!isActive) {
         captureSession.current += 1;
-        if (busyRef.current === 'verify' || busyRef.current === 'capture') setError('촬영이 중단됐어요. 다시 촬영해 주세요.');
+        if (busyRef.current === 'stamp' || busyRef.current === 'capture') setError('촬영이 중단됐어요. 다시 촬영해 주세요.');
       }
       else void checkPermission();
     });
@@ -111,20 +110,21 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
     }
   };
 
-  const saveVerified = async (photo: VerifiedDoseCapture) => {
+  const saveCapture = async (photo: DoseCapture) => {
     const session = captureSession.current;
     const canCommit = () => alive.current && active.current && session === captureSession.current;
     if (!canCommit() || busyRef.current === 'save') return;
     busyRef.current = 'save';
     setBusy('save');
     setError('');
+    setSaveFailed(false);
     const saved = await onSave(photo, canCommit).catch(() => false);
     busyRef.current = null;
     if (!alive.current) return;
     setBusy(null);
     // A successful durable write still counts if the app went into the background during the write.
     if (saved) onClose();
-    else setError('이 사진으로 다시 저장하거나 약봉투를 다시 촬영해 주세요.');
+    else { setSaveFailed(true); setError('기록을 저장하지 못했어요. 다시 저장하거나 다시 촬영해 주세요.'); }
   };
 
   const takePhoto = async () => {
@@ -141,18 +141,13 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
         throw new Error('empty capture');
       }
       const captured = { uri: photo.uri, width: photo.width, height: photo.height, capturedAt: new Date().toISOString() };
-      setCapture(captured);
       setReady(false);
-      busyRef.current = 'verify';
-      setBusy('verify');
-      const result = await verifyDosePhoto(captured, doseSlot(label));
+      busyRef.current = 'stamp';
+      setBusy('stamp');
+      // The preview shows the stamped photo exactly as the caregiver will see it.
+      const stamped = await stampDosePhoto(captured);
       if (!isCurrent()) return;
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setVerified(result.capture);
-      await saveVerified(result.capture);
+      setCapture(stamped);
     } catch {
       if (isCurrent()) setError('사진을 처리하지 못했어요. 다시 촬영해 주세요.');
     } finally {
@@ -165,7 +160,7 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
     if (busyRef.current) return;
     captureSession.current += 1;
     setCapture(null);
-    setVerified(null);
+    setSaveFailed(false);
     setReady(false);
     setMountFailed(false);
     setError('');
@@ -189,7 +184,9 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
             </Pressable>
           </View>
           <View style={[styles.stage, (cameraVisible || !!capture) && styles.darkStage]}>
-            {capture ? (
+            {busy === 'stamp' ? (
+              <View style={styles.center}><ActivityIndicator color="white" /><Text style={styles.loading}>사진 준비 중…</Text></View>
+            ) : capture ? (
               <Image source={{ uri: capture.uri }} accessibilityLabel="촬영한 복약 사진" style={styles.preview} resizeMode="contain" />
             ) : cameraVisible ? (
               <>
@@ -221,7 +218,7 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
                     : !foreground ? '앱으로 돌아오면 촬영을 이어갈 수 있어요.'
                       : mountFailed ? '카메라를 사용할 수 없어요.'
                         : permissionBlocked ? '휴대폰 설정에서 카메라 권한을 허용해 주세요.'
-                          : '작은 약봉투의 복용 시간과 식전·식후 표시가 보이도록 촬영해 주세요.'}
+                          : '먹을 약봉투가 잘 보이게 촬영해 주세요.'}
                 </Text>
                 {!checkingPermission && foreground && !permission?.granted && (
                   <Button
@@ -239,19 +236,20 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
             )}
           </View>
           {(!!error || !!capture || cameraVisible) && <View style={styles.footer}>
-            {cameraVisible && !error && <Text style={s.muted}>복용 시간과 식전·식후 글씨가 보이게 맞춰 주세요.</Text>}
+            {cameraVisible && !error && <Text style={s.muted}>찍은 날짜와 시간이 사진에 함께 남아요.</Text>}
+            {capture && !busy && !error && <Text style={s.muted}>이 사진이 보호자에게 전달돼요.</Text>}
             {!!error && <FadeIn motionKey={error} style={{ gap: 4 }}>
-              {capture && <Text style={styles.failureTitle}>{verified ? '기록 저장 실패' : '사진 인증 미완료'}</Text>}
+              {saveFailed && <Text style={styles.failureTitle}>기록 저장 실패</Text>}
               <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
             </FadeIn>}
             {capture ? (
               busy ? <View accessibilityLiveRegion="polite" style={styles.processing}>
                 <ActivityIndicator color={C.blue} />
-                <Text style={styles.processingText}>{busy === 'save' ? '기록 저장 중…' : '약봉투 확인 중…'}</Text>
-              </View> : verified ? <View style={styles.actions}>
+                <Text style={styles.processingText}>{busy === 'save' ? '기록 저장 중…' : '사진 준비 중…'}</Text>
+              </View> : <View style={styles.actions}>
                 <View style={{ flex: 1 }}><Button title="다시 촬영" secondary onPress={retake} /></View>
-                <View style={{ flex: 1 }}><Button title="저장 재시도" disabled={!foreground} onPress={() => void saveVerified(verified)} /></View>
-              </View> : <Button title="다시 촬영" icon="camera-outline" disabled={!foreground} onPress={retake} />
+                <View style={{ flex: 1 }}><Button title={saveFailed ? '다시 저장' : '이 사진으로 기록'} disabled={!foreground} onPress={() => void saveCapture(capture)} /></View>
+              </View>
             ) : cameraVisible ? (
               <View style={styles.actions}>
                 <Pressable

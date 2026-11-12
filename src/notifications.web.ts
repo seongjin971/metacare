@@ -26,7 +26,3 @@ export async function syncReminders(state: AppState): Promise<NotificationSyncRe
   }
   return unsupported();
 }
-
-export async function scheduleTestReminder(): Promise<NotificationSyncResult> {
-  return unsupported();
-}

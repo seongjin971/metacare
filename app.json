@@ -3,7 +3,7 @@
     "name": "메타케어",
     "slug": "metacare",
     "scheme": "metacare",
-    "version": "1.0.5",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/metacare-icon.png",
     "userInterfaceStyle": "light",
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.metacare.demo",
-      "versionCode": 6,
+      "versionCode": 9,
       "allowBackup": false,
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",
@@ -43,6 +43,8 @@
     "plugins": [
       "expo-router",
       "./plugins/with-android-camera-capture.cjs",
+      "./plugins/with-android-architectures.cjs",
+      "./plugins/with-local-release-signing.cjs",
       "@react-native-community/datetimepicker",
       [
         "expo-camera",

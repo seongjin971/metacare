@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Image, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MAX_PATIENT_NAME, normalizePatientName, setMedicationSchedule, setPatientName } from './domain';
+import { completeSetup, MAX_PATIENT_NAME, normalizePatientName } from './domain';
 import {
   defaultMedicationSchedule, MEDICATION_FREQUENCIES, normalizeMedicationSchedule,
   type MedicationFrequency, type MedicationSchedule,
@@ -37,7 +37,7 @@ export function PatientSetup() {
     setBusy(true);
     try {
       await commit(current => {
-        const named = setPatientName(setMedicationSchedule(current, chosen, new Date()), name);
+        const named = completeSetup(current, name, chosen, new Date());
         return reminders ? { ...named, reminders: { ...named.reminders, medication: true, appointment: true } } : named;
       }, reminders ? '설정을 마쳤어요. 약 먹을 시간에 알려드릴게요.' : '설정을 마쳤어요.');
     } finally { setBusy(false); }
