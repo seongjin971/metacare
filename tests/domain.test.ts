@@ -127,7 +127,7 @@ test('dose recording is idempotent and undo retains an audit trail', () => {
   assert.equal(undone.doses[0].takenAt, undefined);
   assert.equal(undone.activity.length, 2);
   assert.match(undone.activity[0].text, /기록을 취소/);
-  assert.match(undone.activity[1].text, /환자 자가 기록/);
+  assert.match(undone.activity[1].text, /사진으로 기록/);
   assert.equal(validateLoadedState(undone), undone);
 });
 

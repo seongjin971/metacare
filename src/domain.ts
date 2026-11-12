@@ -255,8 +255,7 @@ export function recordDose(state: AppState, doseId: string, taken: boolean, now 
   const capturedPhoto = taken ? normalizeDosePhoto(photo) : undefined;
   if (capturedPhoto) {
     if (Date.parse(capturedPhoto.capturedAt) > now.getTime()) throw new Error('사진 촬영 시간을 확인해 주세요.');
-    if (!capturedPhoto.verification) throw new Error('약봉투 사진 확인이 필요해요. 다시 촬영해 주세요.');
-    if (Date.parse(capturedPhoto.verification.checkedAt) > now.getTime()) throw new Error('사진 확인 시간을 확인해 주세요.');
+    if (capturedPhoto.verification && Date.parse(capturedPhoto.verification.checkedAt) > now.getTime()) throw new Error('사진 확인 시간을 확인해 주세요.');
     if (state.doses.some(item => item.photo?.id === capturedPhoto.id)) throw new Error('이미 기록에 사용한 사진이에요. 새로 촬영해 주세요.');
   }
   const doses = state.doses.map((item): Dose => {
@@ -267,7 +266,7 @@ export function recordDose(state: AppState, doseId: string, taken: boolean, now 
     delete pendingDose.photo;
     return pendingDose;
   });
-  return withActivity({ ...state, doses }, `${formatDate(dose.date)} ${dose.time} ${dose.label}${taken ? ' 사진 인증 완료 · 사진과 함께 남긴 환자 자가 기록' : '의 복약 기록을 취소했어요'}`, now);
+  return withActivity({ ...state, doses }, `${formatDate(dose.date)} ${dose.time} ${dose.label}${taken ? ' 사진으로 기록했어요' : '의 복약 기록을 취소했어요'}`, now);
 }
 
 export function normalizePatientName(input: string): string {

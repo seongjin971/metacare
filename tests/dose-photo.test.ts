@@ -50,8 +50,7 @@ test('photo and capture time persist with the record without sharing mutable inp
   const restored = ensureDailyDoses(validateLoadedState(JSON.parse(JSON.stringify(recorded))), new Date(2026, 9, 29));
   assert.deepEqual(restored.doses[0], recorded.doses[0]);
   assert.equal(recordDose(recorded, state.doses[0].id, true, now), recorded);
-  assert.match(recorded.activity[0].text, /사진과 함께/);
-  assert.match(recorded.activity[0].text, /환자 자가 기록/);
+  assert.match(recorded.activity[0].text, /사진으로 기록/);
 });
 
 test('one capture cannot complete multiple doses and cannot be captured after completion', () => {
@@ -101,14 +100,16 @@ test('old records without photos survive migration unchanged but new records can
   assert.throws(() => recordDose(loaded, loaded.doses[1].id, true, now), /사진을 촬영/);
 });
 
-test('old unverified photos survive loading but cannot authorize a new completion', () => {
+test('a timestamped photo without the paused pouch check records a dose, but a dose still needs a photo', () => {
   const state = createInitialState(now);
-  const { verification: _verification, ...legacyPhoto } = photoFor(now);
+  const { verification: _verification, ...stampedPhoto } = photoFor(now);
   const legacy = { ...state, doses: state.doses.map((dose, index) => index === 0
-    ? { ...dose, status: 'taken', takenAt: now.toISOString(), photo: legacyPhoto } : dose) };
+    ? { ...dose, status: 'taken', takenAt: now.toISOString(), photo: stampedPhoto } : dose) };
   assert.equal(validateLoadedState(legacy), legacy);
-  assert.throws(() => recordDose(state, state.doses[1].id, true, now, legacyPhoto), /사진 확인/);
-  assert.equal(state.doses[1].status, 'pending');
+  const recorded = recordDose(state, state.doses[1].id, true, now, stampedPhoto);
+  assert.equal(recorded.doses[1].status, 'taken');
+  assert.equal(recorded.doses[1].photo?.verification, undefined);
+  assert.throws(() => recordDose(state, state.doses[1].id, true, now), /사진을 촬영/);
 });
 
 test('verification metadata must be valid and precede the durable record', () => {

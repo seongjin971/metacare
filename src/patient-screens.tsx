@@ -16,7 +16,7 @@ import { medicationScheduleLabel } from './medication-schedule';
 import { MedicationSchedulePicker } from './medication-schedule-picker';
 import { formatClockTime } from './clock-time';
 import { DoseCamera } from './dose-camera';
-import { isPhotoAnalyzerAvailable, type VerifiedDoseCapture } from './verify-dose-photo';
+import { canCaptureDosePhoto, type DoseCapture } from './stamp-dose-photo';
 import { DosePhotoButton } from './dose-photo-button';
 import { removeDosePhoto, saveDosePhoto } from './dose-photo-storage';
 import { savePhotoRecord } from './save-photo-record';
@@ -41,7 +41,7 @@ function CaptureButton({ dose, large = false }: { dose: Dose; large?: boolean })
   const { commit } = useCare();
   const [cameraOpen, setCameraOpen] = useState(false);
   useFocusEffect(useCallback(() => () => setCameraOpen(false), []));
-  const saveCapture = async (capture: VerifiedDoseCapture, canCommit: () => boolean) => {
+  const saveCapture = async (capture: DoseCapture, canCommit: () => boolean) => {
     return savePhotoRecord(capture, {
       savePhoto: saveDosePhoto,
       removePhoto: removeDosePhoto,
@@ -51,7 +51,7 @@ function CaptureButton({ dose, large = false }: { dose: Dose; large?: boolean })
         const current = state.doses.find(item => item.id === dose.id);
         if (!current || current.status !== 'pending') throw new Error('복약 일정이 변경됐어요. 복약 화면에서 다시 확인해 주세요.');
         return recordDose(state, dose.id, true, new Date(), photo);
-      }, '사진 인증 완료'),
+      }, '사진으로 기록했어요.'),
     });
   };
   return <>
@@ -114,7 +114,7 @@ function DoseRow({ dose, canCapture, overdueBy }: { dose: Dose; canCapture: bool
 /** Today's single next action, so a missed or due dose is the first thing the patient sees. */
 function NextDoseCard({ doses, now, firstDay }: { doses: Dose[]; now: Date; firstDay: boolean }) {
   const { state: care } = useCare();
-  const canCapture = isPhotoAnalyzerAvailable();
+  const canCapture = canCaptureDosePhoto();
   if (!doses.length) {
     if (!firstDay) return null;
     const first = care.medicationSchedule.times[0];
@@ -145,7 +145,7 @@ function NextDoseCard({ doses, now, firstDay }: { doses: Dose[]; now: Date; firs
 }
 
 function DoseList({ doses, now }: { doses: Dose[]; now: Date }) {
-  const canCapture = isPhotoAnalyzerAvailable();
+  const canCapture = canCaptureDosePhoto();
   return (
     <View>
       {doses.map((dose, index) => {
