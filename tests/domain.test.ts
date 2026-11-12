@@ -4,7 +4,7 @@ import { photoFor } from './fixtures.ts';
 import {
   addDays, addVisit, createInitialState, ensureDailyDoses, localDateKey,
   hospitalNames, recordDose, removeVisit, selectHospital, setHospitalContact, setSharing, upcomingVisits,
-  validateLoadedState, visibleDoses,
+  validateLoadedState, visibleDoses, setPatientName,
 } from '../src/domain.ts';
 
 const now = new Date(2026, 9, 28, 9, 0, 0);
@@ -187,4 +187,15 @@ test('legacy simulated bookings are preserved separately and never promoted into
   assert.equal(restored.visitsRevision, 0);
   assert.deepEqual(restored.hospitalContact, { name: '', phone: '', bookingUrl: '' });
   assert.equal(validateLoadedState(restored), restored);
+});
+
+test('the patient name is trimmed, bounded, and survives a reload', () => {
+  const named = setPatientName(createInitialState(), '  김   정희 ');
+  assert.deepEqual(named.profile, { name: '김 정희' });
+  assert.equal(setPatientName(named, '김 정희'), named);
+  assert.throws(() => setPatientName(named, '   '), /이름/);
+  assert.throws(() => setPatientName(named, 'a'.repeat(41)), /이름/);
+  assert.deepEqual(validateLoadedState(JSON.parse(JSON.stringify(named))).profile, { name: '김 정희' });
+  assert.equal(validateLoadedState(JSON.parse(JSON.stringify(createInitialState()))).profile, undefined, 'older saves still need setup');
+  assert.throws(() => validateLoadedState({ ...JSON.parse(JSON.stringify(named)), profile: { name: '' } }));
 });

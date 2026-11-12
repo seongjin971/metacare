@@ -29,7 +29,7 @@ export default function VisitsScreen() {
         </React.Fragment>)}
       </Card>
       : sharingAgenda ? <Card><Empty icon="calendar-outline" title="예정된 진료가 없어요" body="환자가 새 진료 일정을 등록하면 여기에 표시돼요." /></Card>
-      : <Card><Text style={s.body}>현재 표시할 진료가 없어요.</Text></Card>}
+      : <Card><Empty icon="calendar-outline" title="진료 일정이 공유되지 않았어요" body="환자 휴대폰의 내 관리 → 보호자 연결에서 ‘진료 일정 공유’를 켜면 예정된 진료가 여기에 보여요." /></Card>}
     <SyncStatus />
   </CarePage>;
 }

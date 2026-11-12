@@ -51,7 +51,7 @@ export async function suspendPatientReminders(): Promise<void> {
 function serialized(task: () => Promise<NotificationSyncResult>) {
   const result = queue.then(task, task).catch((): NotificationSyncResult => ({
     status: 'error',
-    message: '기기 알림을 확인하지 못했어요. 알림 설정에서 다시 시도해 주세요.',
+    message: '이 휴대폰에서 알림을 설정하지 못했어요. 휴대폰 설정 → 알림에서 메타케어가 허용돼 있는지 확인해 주세요.',
     count: 0,
   }));
   queue = result;

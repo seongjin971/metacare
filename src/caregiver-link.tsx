@@ -16,7 +16,7 @@ type Invitation = { code: string; expiresAt: string };
 type PatientSession = PatientSharingSession;
 type Sharing = {
   ready: boolean; busy: boolean; stopping: boolean; session: PatientSession | null; connection: Connection | null;
-  error: string; photosPending: boolean; clock: number;
+  error: string; photosPending: boolean; clock: number; patientName: string;
   invite: () => Promise<void>; disconnect: () => Promise<void>; retry: () => Promise<void>;
   setVisitSharing: (enabled: boolean) => Promise<void>;
 };
@@ -104,7 +104,7 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
       && saved.current.token === current.token;
     if (!valid()) return;
     const pref = current.visitPreference?.connectedAt === connectedAt ? current.visitPreference : undefined;
-    const snapshot = makeCareSnapshot(state, current.patientName, new Date(), pref?.enabled === true, pref?.scope);
+    const snapshot = makeCareSnapshot(state, state.profile?.name ?? current.patientName, new Date(), pref?.enabled === true, pref?.scope);
     const body: PatientSnapshotUpdate = pref ? { ...snapshot, visitUpdate: {
       connectedAt: pref.connectedAt, enabled: pref.enabled, consentRevision: pref.revision,
       ...(pref.enabled && pref.scope && { scope: pref.scope }),
@@ -312,7 +312,7 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
     }
   }, [save, handleFailure, revokePending]);
 
-  return <SharingContext.Provider value={{ ready, busy, stopping, session, connection, error, photosPending, clock, invite, disconnect, setVisitSharing, retry: refresh }}>{children}</SharingContext.Provider>;
+  return <SharingContext.Provider value={{ ready, busy, stopping, session, connection, error, photosPending, clock, patientName: durableState?.profile?.name ?? session?.patientName ?? '환자', invite, disconnect, setVisitSharing, retry: refresh }}>{children}</SharingContext.Provider>;
 }
 
 function InviteCodeHandoff({ invite, expiresIn }: { invite: Invitation; expiresIn: number }) {
@@ -343,13 +343,13 @@ function InviteCodeHandoff({ invite, expiresIn }: { invite: Invitation; expiresI
 export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: string; body: string; label: string; cancelLabel?: string; destructive?: boolean; onConfirm: () => void }) => void }) {
   const sharing = useContext(SharingContext);
   if (!sharing) throw new Error('PatientSharingProvider required');
-  const { ready, busy, stopping, session, connection, error, photosPending, clock, invite, disconnect, setVisitSharing, retry } = sharing;
+  const { ready, busy, stopping, session, connection, error, photosPending, clock, patientName, invite, disconnect, setVisitSharing, retry } = sharing;
   const connected = session?.active === true && !!connection?.caregiverName && !!connection.connectedAt;
   const established = connected || session?.wasConnected === true;
   const nextOnly = session?.visitPreference?.enabled === true && session.visitPreference.scope !== 'upcoming';
   const visitControlDisabled = busy || stopping || (!connection?.connectedAt && !session?.visitPreference);
   const waiting = session?.active === true;
-  const expiresIn = session?.invite ? Math.max(0, Math.ceil((Date.parse(session.invite.expiresAt) - clock) / 1000)) : 0;
+  const expiresIn = session?.invite ? Math.max(0, Math.floor((Date.parse(session.invite.expiresAt) - clock) / 1000)) : 0;
   const stop = () => confirm({
     title: established ? '보호자 연결을 해제할까요?' : '보호자 초대를 취소할까요?',
     body: '보호자의 접근 권한과 연결 코드를 취소하고 서버에 공유된 기록·사진을 삭제합니다. 기기에 저장된 내 기록은 유지됩니다.',
@@ -364,7 +364,7 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
     {ready && !session?.pendingRevoke && <View style={styles.profiles}>
       <View style={styles.action}>
         <Text style={s.micro}>내 프로필</Text>
-        <Text style={styles.profileName}>{session?.patientName ?? '환자'}</Text>
+        <Text style={styles.profileName}>{patientName}</Text>
       </View>
       <Icon name="link-outline" size={18} color={connected ? C.green : C.muted} />
       <View style={styles.action}>

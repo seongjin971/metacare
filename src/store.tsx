@@ -3,6 +3,7 @@ import { ActivityIndicator, AppState as NativeAppState, Modal, Platform, Text, V
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, createInitialState, ensureDailyDoses, validateLoadedState } from './domain';
 import { NotificationSyncResult, syncReminders } from './notifications';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FadeIn, MotionPressable as Pressable, useReducedMotion } from './motion';
 import { PatientSharingProvider } from './caregiver-link';
 import { mergeNewerVisitData, onWebVisitDataChanged, writeWebState } from './web-visit-storage';
@@ -164,9 +165,10 @@ function CareFeedback({ message, setMessage, dialog, setDialog }: {
   message: string; setMessage: (value: string) => void; dialog: Dialog | null; setDialog: (value: Dialog | null) => void;
 }) {
   const reducedMotion = useReducedMotion();
+  const inset = useSafeAreaInsets();
   useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 4200); return () => clearTimeout(timer); }, [message, setMessage]);
   return <>
-    {message ? <FadeIn motionKey={message} style={{ position: 'absolute', bottom: 98, left: 20, right: 20, alignSelf: 'center', zIndex: 20, maxWidth: 650 }}>
+    {message ? <FadeIn motionKey={message} style={{ position: 'absolute', top: inset.top + 12, left: 20, right: 20, alignSelf: 'center', zIndex: 20, maxWidth: 650 }}>
       <Pressable accessibilityRole="alert" onPress={() => setMessage('')} style={{ backgroundColor: '#172b4d', borderRadius: 16, padding: 17 }}>
         <Text style={{ color: 'white', lineHeight: 23, fontSize: 14 }}>{message}</Text>
       </Pressable>
