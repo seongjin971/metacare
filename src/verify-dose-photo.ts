@@ -1,18 +1,18 @@
 import { analyzePhoto, isPhotoAnalyzerAvailable } from '../modules/medication-photo-analyzer';
-import { checkMedicinePouch } from './medicine-pouch-check';
+import { checkMedicinePouch, type DoseSlot } from './medicine-pouch-check';
 import type { PhotoVerification } from './dose-photo';
 
 export type DoseCapture = { uri: string; capturedAt: string; width: number; height: number };
 export type VerifiedDoseCapture = DoseCapture & { verification: PhotoVerification };
 export { isPhotoAnalyzerAvailable };
 
-export async function verifyDosePhoto(capture: DoseCapture): Promise<
+export async function verifyDosePhoto(capture: DoseCapture, slot?: DoseSlot): Promise<
   { ok: true; capture: VerifiedDoseCapture } | { ok: false; message: string }
 > {
   if (!isPhotoAnalyzerAvailable()) return { ok: false, message: '사진 확인 기능이 포함된 설치 앱에서 촬영해 주세요.' };
   try {
     const analysis = await analyzePhoto(capture.uri);
-    const result = checkMedicinePouch(analysis);
+    const result = checkMedicinePouch(analysis, slot);
     if (!result.ok) return result;
     return { ok: true, capture: { ...capture, verification: { method: result.method, checkedAt: new Date().toISOString() } } };
   } catch {

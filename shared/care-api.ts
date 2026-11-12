@@ -23,10 +23,10 @@ export function resolveCareUrl(): string {
   throw new CareApiError('연결 서버가 설정되지 않았어요.');
 }
 
-export async function careRequest<T>(path: string, options: { method?: string; token?: string; body?: unknown } = {}): Promise<T> {
+export async function careRequest<T>(path: string, options: { method?: string; token?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
   if (!path.startsWith('/v1/')) throw new CareApiError('요청 주소를 확인해 주세요.');
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 12000);
   try {
     const response = await fetch(`${resolveCareUrl()}${path}`, {
       method: options.method ?? 'GET',

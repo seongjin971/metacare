@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { checkMedicinePouch, type PhotoAnalysis } from '../src/medicine-pouch-check.ts';
+import { checkMedicinePouch, doseSlot, type PhotoAnalysis } from '../src/medicine-pouch-check.ts';
 
 function analysis(text = '메타약국\n1일 3회 1회 1정\n식후 30분에 복용'): PhotoAnalysis {
   return { text, width: 1280, height: 960, meanLuminance: 150, darkPixelRatio: 0.12, blurScore: 120 };
@@ -105,4 +105,26 @@ test('accepted result contains no OCR text or identifying metadata', () => {
   assert.deepEqual(result, { ok: true, method: 'medicine-pouch-text-v1' });
   assert.equal(JSON.stringify(source), before);
   assert.doesNotMatch(JSON.stringify(result), /홍길동|010|메타약국/);
+});
+
+test('a pouch printed for another meal cannot verify this dose slot', () => {
+  const morning = analysis('2026.10.29 아침 식후30분');
+  const result = checkMedicinePouch(morning, '저녁');
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, 'wrong_slot');
+  assert.equal(checkMedicinePouch(morning, '아침').ok, true);
+  assert.equal(checkMedicinePouch(morning).ok, true, 'once-daily doses have no slot');
+});
+
+test('pouches listing the dose slot or no meal word stay eligible for that slot', () => {
+  assert.equal(checkMedicinePouch(analysis('메타약국\n아침 점심 저녁\n식후 30분'), '점심').ok, true);
+  assert.equal(checkMedicinePouch(analysis('메타약국\n1일 3회 1회 1정\n식후 30분에 복용'), '저녁').ok, true);
+  assert.equal(checkMedicinePouch(analysis('저녁약 취침전'), '저녁').ok, true);
+});
+
+test('dose labels map to their pouch slot', () => {
+  assert.equal(doseSlot('아침 복용약'), '아침');
+  assert.equal(doseSlot('점심 복용약'), '점심');
+  assert.equal(doseSlot('저녁 복용약'), '저녁');
+  assert.equal(doseSlot('복용약'), undefined);
 });
