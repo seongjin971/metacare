@@ -16,6 +16,7 @@ export function RolePicker({ current, choosing, error, onSelect, onCancel }: {
     <View style={styles.panel}>
       <View style={styles.brand}><Image source={require('../assets/metacare-icon.png')} accessible={false} style={{ width: 32, height: 32, borderRadius: 9 }} /><Text style={styles.brandName}>메타케어</Text></View>
       <Text accessibilityRole="header" style={styles.heading}>{current ? '역할 변경' : '어떻게 사용하시나요?'}</Text>
+      {!current && <Text style={styles.hint}>약봉투 사진으로 복약을 기록하고, 가족 보호자와 기록과 진료 일정을 함께 확인하는 앱이에요.</Text>}
       {current && <Text style={styles.hint}>역할을 바꾸면 이 기기에서 이전 역할의 알림이 꺼져요. 기록과 연결은 유지돼요.</Text>}
       {roles.map(({ id, title, description, icon, tint, ink }) => <MotionPressable key={id} accessibilityRole="button" accessibilityLabel={title}
         accessibilityHint={description} accessibilityState={{ disabled: !!choosing, selected: current === id }} disabled={!!choosing} onPress={() => onSelect(id)}

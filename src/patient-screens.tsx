@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
-import { Platform, StyleSheet, Switch, Text, View } from 'react-native';
+import { Platform, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { Dose, localDateKey, recordDose, setMedicationSchedule, setReminderOffsets, setSharing } from './domain';
+import { Dose, localDateKey, MAX_PATIENT_NAME, recordDose, setMedicationSchedule, setPatientName, setReminderOffsets } from './domain';
 import { shiftMonth, startOfMonth } from './calendar';
 import { MonthCalendar } from './month-calendar';
 import { dosesForHistoryDate, summarizeDosesByDate } from './medication-history';
@@ -20,9 +20,12 @@ import { DosePhotoButton } from './dose-photo-button';
 import { removeDosePhoto, saveDosePhoto } from './dose-photo-storage';
 import { savePhotoRecord } from './save-photo-record';
 import { FadeIn, MotionPressable as Pressable } from './motion';
+import { doseTiming, lateText, nextDose } from './dose-timing';
 import { CaregiverLinkCard } from './caregiver-link';
 import { HospitalContactCard } from './hospital-contact-card';
 import { useRoleActions } from './role-actions';
+
+const AMBER = '#a66b1d';
 
 function TextAction({ label, onPress, accessibilityLabel }: { label: string; onPress: () => void; accessibilityLabel?: string }) {
   return (
@@ -45,10 +48,41 @@ function Disclosure({ title, children }: { title: string; children: React.ReactN
   );
 }
 
-function DoseRow({ dose, canCapture }: { dose: Dose; canCapture: boolean }) {
-  const { commit, confirm, notify } = useCare();
+/** The only way to record a dose: photograph its pouch. Owns the camera for that dose. */
+function CaptureButton({ dose, large = false }: { dose: Dose; large?: boolean }) {
+  const { commit } = useCare();
   const [cameraOpen, setCameraOpen] = useState(false);
   useFocusEffect(useCallback(() => () => setCameraOpen(false), []));
+  const saveCapture = async (capture: VerifiedDoseCapture, canCommit: () => boolean) => {
+    return savePhotoRecord(capture, {
+      savePhoto: saveDosePhoto,
+      removePhoto: removeDosePhoto,
+      canCommit,
+      commitRecord: photo => commit(state => {
+        if (!canCommit()) throw new Error('촬영이 중단됐어요. 다시 촬영해 주세요.');
+        const current = state.doses.find(item => item.id === dose.id);
+        if (!current || current.status !== 'pending') throw new Error('복약 일정이 변경됐어요. 복약 화면에서 다시 확인해 주세요.');
+        return recordDose(state, dose.id, true, new Date(), photo);
+      }, '사진 인증 완료'),
+    });
+  };
+  return <>
+    {large ? <Button title="약봉투 촬영하고 기록하기" icon="camera-outline" onPress={() => setCameraOpen(true)} />
+      : <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${dose.label} 약봉투 촬영`}
+        onPress={() => setCameraOpen(true)}
+        style={({ pressed }) => [styles.captureButton, pressed && { opacity: 0.7 }]}
+      >
+        <Icon name="camera-outline" size={18} color={C.blue} />
+        <Text style={styles.captureLabel}>약봉투 촬영</Text>
+      </Pressable>}
+    {cameraOpen && <DoseCamera label={dose.label} onClose={() => setCameraOpen(false)} onSave={saveCapture} />}
+  </>;
+}
+
+function DoseRow({ dose, canCapture, overdueBy }: { dose: Dose; canCapture: boolean; overdueBy?: number }) {
+  const { commit, confirm, notify } = useCare();
   const taken = dose.status === 'taken';
   const recordedTime = dose.takenAt
     ? new Date(dose.takenAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -67,62 +101,63 @@ function DoseRow({ dose, canCapture }: { dose: Dose; canCapture: boolean }) {
       });
     },
   });
-  const saveCapture = async (capture: VerifiedDoseCapture, canCommit: () => boolean) => {
-    return savePhotoRecord(capture, {
-      savePhoto: saveDosePhoto,
-      removePhoto: removeDosePhoto,
-      canCommit,
-      commitRecord: photo => commit(state => {
-        if (!canCommit()) throw new Error('촬영이 중단됐어요. 다시 촬영해 주세요.');
-        const current = state.doses.find(item => item.id === dose.id);
-        if (!current || current.status !== 'pending') throw new Error('복약 일정이 변경됐어요. 복약 화면에서 다시 확인해 주세요.');
-        return recordDose(state, dose.id, true, new Date(), photo);
-      }, '사진 인증 완료'),
-    });
-  };
   return (
-    <>
     <View style={styles.doseRow}>
       <View style={styles.itemContent}>
         <Text style={styles.itemTitle}>{dose.label}</Text>
-        <Text style={s.muted}>{dose.time}{taken && <Text style={{ color: C.green }}> · {recordDetail}</Text>}</Text>
+        <Text style={s.muted}>{dose.time}
+          {taken && <Text style={{ color: C.green }}> · {recordDetail}</Text>}
+          {!taken && overdueBy !== undefined && <Text style={{ color: AMBER }}> · {lateText(overdueBy)}</Text>}
+        </Text>
       </View>
-      {!taken && canCapture ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${dose.label} 약봉투 촬영`}
-          onPress={() => setCameraOpen(true)}
-          style={({ pressed }) => [styles.captureButton, pressed && { opacity: 0.7 }]}
-        >
-          <Icon name="camera-outline" size={18} color={C.blue} />
-          <Text style={styles.captureLabel}>약봉투 촬영</Text>
-        </Pressable>
-      ) : taken ? (
-        <View style={s.inline}>
-          {dose.photo && <DosePhotoButton photo={dose.photo} label={dose.label} />}
-          <Pressable accessibilityRole="button" accessibilityLabel={`${dose.label} 기록 취소`} onPress={undo} style={styles.recordAction}>
-            <Text style={s.muted}>기록 취소</Text>
-          </Pressable>
-        </View>
-      ) : <Text style={s.muted}>미기록</Text>}
+      {!taken && canCapture ? <CaptureButton dose={dose} />
+        : taken ? (
+          <View style={s.inline}>
+            {dose.photo && <DosePhotoButton photo={dose.photo} label={dose.label} />}
+            <Pressable accessibilityRole="button" accessibilityLabel={`${dose.label} 기록 취소`} onPress={undo} style={styles.recordAction}>
+              <Text style={s.muted}>기록 취소</Text>
+            </Pressable>
+          </View>
+        ) : <Text style={[s.muted, overdueBy !== undefined && { color: AMBER }]}>미기록</Text>}
     </View>
-    {cameraOpen && <DoseCamera label={dose.label} onClose={() => setCameraOpen(false)} onSave={saveCapture} />}
-    </>
   );
 }
 
-function DoseList({ doses }: { doses: Dose[] }) {
+/** Today's single next action, so a missed or due dose is the first thing the patient sees. */
+function NextDoseCard({ doses, now }: { doses: Dose[]; now: Date }) {
+  const canCapture = isPhotoAnalyzerAvailable();
+  if (!doses.length) return null;
+  const next = nextDose(doses, now);
+  if (!next) return <Card style={{ backgroundColor: C.mint, borderColor: '#cdeee4' }}>
+    <View style={s.inline}><Icon name="checkmark-circle" size={26} color={C.green} /><Text style={[s.section, { color: C.green }]}>오늘 약을 모두 드셨어요</Text></View>
+  </Card>;
+  const { dose, state, minutesLate } = next;
+  const status = state === 'overdue' ? `${dose.time} · ${lateText(minutesLate)}` : state === 'due' ? `${dose.time} · 지금 드실 시간이에요` : `${dose.time}에 드세요`;
+  return <Card style={state === 'overdue' ? { borderColor: '#f1d3a6', backgroundColor: '#fff8ec' } : undefined}>
+    <Text style={s.micro}>{state === 'upcoming' ? '다음 복약' : '지금 할 일'}</Text>
+    <View style={{ gap: 4 }}>
+      <Text style={styles.nextTitle}>{dose.label}</Text>
+      <View style={s.inline}>
+        {state === 'overdue' && <Icon name="alert-circle-outline" size={18} color={AMBER} />}
+        <Text style={[styles.nextStatus, state === 'overdue' && { color: AMBER }]}>{status}</Text>
+      </View>
+    </View>
+    {canCapture ? <CaptureButton dose={dose} large />
+      : <Text style={s.muted}>약봉투 촬영은 메타케어 설치 앱에서 할 수 있어요.</Text>}
+  </Card>;
+}
+
+function DoseList({ doses, now }: { doses: Dose[]; now: Date }) {
   const canCapture = isPhotoAnalyzerAvailable();
   return (
     <View>
-      {doses.map((dose, index) => (
-        <React.Fragment key={dose.id}>
+      {doses.map((dose, index) => {
+        const timing = doseTiming(dose, now);
+        return <React.Fragment key={dose.id}>
           {index > 0 && <View style={s.divider} />}
-          <DoseRow dose={dose} canCapture={canCapture} />
-        </React.Fragment>
-      ))}
-      {!canCapture && doses.some(dose => dose.status === 'pending') &&
-        <Text style={s.micro}>약봉투 촬영은 메타케어 설치 앱에서 할 수 있어요.</Text>}
+          <DoseRow dose={dose} canCapture={canCapture} overdueBy={dose.status === 'pending' && timing.state === 'overdue' ? timing.minutesLate : undefined} />
+        </React.Fragment>;
+      })}
     </View>
   );
 }
@@ -149,6 +184,18 @@ export function MedicationScreen() {
   return (
     <Page title="복약">
       <View style={styles.stack}>
+        {date === today && <NextDoseCard doses={doses} now={now} />}
+        {date === today ? <Card>
+          <View style={s.inline}>
+            <Text style={s.section}>오늘 복약</Text>
+            {doses.length > 0 && <Text style={[s.muted, done === doses.length && { color: C.green }]}>{done}/{doses.length}</Text>}
+          </View>
+          {doses.length ? <DoseList doses={doses} now={now} /> : <Text style={s.muted}>복약 일정이 없어요.</Text>}
+        </Card> : <>
+          <Button title="오늘로 돌아가기" icon="arrow-back" secondary small onPress={goToToday} />
+          <MedicationHistoryCard key={date} doses={doses} sample={sample} emptyMessage={date > today ? '아직 복약 기록이 없어요.' : '복약 기록이 없어요.'} />
+        </>}
+        <Text style={[s.section, { marginTop: 4 }]}>지난 기록 보기</Text>
         <MonthCalendar
           compact
           month={month}
@@ -165,30 +212,8 @@ export function MedicationScreen() {
             } : {};
           }}
         />
-        {date === today ? <Card>
-          <View style={s.inline}>
-            <Text style={s.section}>복약 현황</Text>
-            {doses.length > 0 && <Text style={[s.muted, done === doses.length && { color: C.green }]}>{done}/{doses.length}</Text>}
-          </View>
-          {doses.length ? <DoseList doses={doses} /> : <Text style={s.muted}>복약 일정이 없어요.</Text>}
-        </Card> : <MedicationHistoryCard key={date} doses={doses} sample={sample} emptyMessage={date > today ? '아직 복약 기록이 없어요.' : '복약 기록이 없어요.'} />}
       </View>
     </Page>
-  );
-}
-
-function SettingRow({ title, detail, value, disabled, onChange, accessibilityLabel }: {
-  title: string; detail?: string; value: boolean; disabled: boolean;
-  onChange: (enabled: boolean) => void; accessibilityLabel: string;
-}) {
-  return (
-    <View style={styles.settingRow}>
-      <View style={styles.itemContent}>
-        <Text style={styles.itemTitle}>{title}</Text>
-        {detail && <Text style={s.muted}>{detail}</Text>}
-      </View>
-      <Switch accessibilityLabel={accessibilityLabel} disabled={disabled} value={value} onValueChange={onChange} trackColor={{ false: '#dfe5ee', true: C.blue }} thumbColor="white" />
-    </View>
   );
 }
 
@@ -217,6 +242,7 @@ export function SettingsScreen() {
   return (
     <Page title="내 관리">
       <View style={styles.stack}>
+        {!sample && <NameCard />}
         <Card>
           <Pressable accessibilityRole="button" accessibilityLabel="복약 설정" onPress={() => setEditingMedication(true)} style={[s.row, { minHeight: 56, gap: 16 }]}>
             <View style={styles.itemContent}>
@@ -244,13 +270,40 @@ export function SettingsScreen() {
   );
 }
 
+function NameCard() {
+  const { state, update } = useCare();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const name = state.profile?.name ?? '';
+  const save = () => { if (update(current => setPatientName(current, draft), '이름을 저장했어요.')) setEditing(false); };
+  return <Card>
+    <View style={s.row}>
+      <View style={styles.itemContent}>
+        <Text style={s.section}>내 이름</Text>
+        {!editing && <Text style={s.body}>{name}</Text>}
+      </View>
+      {!editing && <TextAction label="변경" accessibilityLabel="이름 변경" onPress={() => { setDraft(name); setEditing(true); }} />}
+    </View>
+    {editing && <>
+      <TextInput accessibilityLabel="내 이름" value={draft} onChangeText={setDraft} maxLength={MAX_PATIENT_NAME} autoFocus
+        returnKeyType="done" onSubmitEditing={save} style={s.input} />
+      <Text style={s.micro}>보호자 화면에 이 이름으로 표시돼요.</Text>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}><Button title="취소" secondary small onPress={() => setEditing(false)} /></View>
+        <View style={{ flex: 1 }}><Button title="저장" small disabled={!draft.trim()} onPress={save} /></View>
+      </View>
+    </>}
+  </Card>;
+}
+
 function SharingAndReminderSettings() {
   const roleActions = useRoleActions();
-  const { state, update, confirm, notify, notificationStatus, setNotificationStatus } = useCare();
+  const { state, update, notify, notificationStatus, setNotificationStatus, confirm } = useCare();
   const [busy, setBusy] = useState(false);
   const [editingReminder, setEditingReminder] = useState<ReminderKind | null>(null);
   const isWeb = Platform.OS === 'web';
-  const notificationProblem = notificationStatus.status === 'error' || notificationStatus.status === 'denied';
+  const remindersOn = state.reminders.appointment || state.reminders.medication;
+  const notificationProblem = remindersOn && (notificationStatus.status === 'error' || notificationStatus.status === 'denied');
 
   const toggleReminder = async (key: 'appointment' | 'medication', enabled: boolean) => {
     if (busy) return;
@@ -263,19 +316,6 @@ function SharingAndReminderSettings() {
       }
       update(value => ({ ...value, reminders: { ...value.reminders, [key]: enabled } }));
     } finally { setBusy(false); }
-  };
-
-  const toggleHospitalShare = (enabled: boolean) => {
-    if (!enabled) {
-      update(value => setSharing(value, 'hospital', false), '공유를 중지했어요.');
-      return;
-    }
-    confirm({
-      title: '병원에게 공유할까요?',
-      body: '복약 일정·복용 여부·기록 시간을 공유하도록 설정합니다. 현재 실제 계정 연결은 지원하지 않습니다. 언제든 끌 수 있습니다.',
-      label: '공유 허용',
-      onConfirm: () => update(value => setSharing(value, 'hospital', true), '공유를 허용했어요.'),
-    });
   };
 
   const testReminder = async () => {
@@ -296,13 +336,6 @@ function SharingAndReminderSettings() {
   return (
     <>
       <CaregiverLinkCard confirm={confirm} />
-      <Card>
-        <Text style={s.section}>병원 공유 설정</Text>
-        <View>
-          <SettingRow title="병원" value={state.sharing.hospital} disabled={false} onChange={toggleHospitalShare} accessibilityLabel="병원 복약 기록 공유" />
-        </View>
-        <Text style={s.muted}>복약 일정·복용 여부·기록 시간의 공유 의향을 저장합니다. 실제 병원 계정 연결은 아직 지원하지 않아요.</Text>
-      </Card>
       <Card>
         <Text style={s.section}>알림</Text>
         <View>
@@ -347,6 +380,8 @@ const styles = StyleSheet.create({
   doseRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 72, paddingVertical: 10 },
   captureButton: { minWidth: 80, minHeight: 44, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 8, backgroundColor: C.pale },
   captureLabel: { color: C.blue, fontSize: 14, fontWeight: '600' },
+  nextTitle: { color: C.navy, fontSize: 22, fontWeight: '700', letterSpacing: -0.5 },
+  nextStatus: { color: '#495b76', fontSize: 16, fontWeight: '600' },
   settingRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 9 },
   reminderDetails: { minHeight: 52, justifyContent: 'center', paddingVertical: 6 },
   disclosure: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderColor: C.line },

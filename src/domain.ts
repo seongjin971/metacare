@@ -32,6 +32,9 @@ export type Dose = {
 };
 
 export type Activity = { id: string; text: string; createdAt: string };
+/** Shown to the paired caregiver. Its presence also marks first-run setup as finished. */
+export type PatientProfile = { name: string };
+export const MAX_PATIENT_NAME = 40;
 
 export type AppState = {
   version: 1;
@@ -51,6 +54,7 @@ export type AppState = {
     medicationMinutesBefore: number[];
   };
   activity: Activity[];
+  profile?: PatientProfile;
 };
 
 const LEGACY_DOCTORS = new Set<unknown>(['doctor-kim', 'doctor-lee', 'doctor-park']);
@@ -254,6 +258,18 @@ export function recordDose(state: AppState, doseId: string, taken: boolean, now 
   return withActivity({ ...state, doses }, `${formatDate(dose.date)} ${dose.time} ${dose.label}${taken ? ' 사진 인증 완료 · 사진과 함께 남긴 환자 자가 기록' : '의 복약 기록을 취소했어요'}`, now);
 }
 
+export function normalizePatientName(input: string): string {
+  const name = typeof input === 'string' ? input.trim().replace(/\s+/g, ' ') : '';
+  if (!isCareName(name, MAX_PATIENT_NAME)) throw new Error(`이름을 1~${MAX_PATIENT_NAME}자로 입력해 주세요.`);
+  return name;
+}
+
+export function setPatientName(state: AppState, input: string): AppState {
+  const name = normalizePatientName(input);
+  if (state.profile?.name === name) return state;
+  return { ...state, profile: { name } };
+}
+
 export function setSharing(state: AppState, recipient: 'caregiver' | 'hospital', enabled: boolean, now = new Date()): AppState {
   validNow(now);
   if (recipient !== 'caregiver' && recipient !== 'hospital') throw new Error('공유 대상을 확인해 주세요.');
@@ -374,6 +390,8 @@ export function validateLoadedState(value: unknown): AppState {
         && (!item.photo.verification || Date.parse(item.photo.verification.checkedAt) <= Date.parse(item.takenAt))))
       : item.takenAt === undefined && item.photo === undefined))) return invalid();
   if (!validArray(value.activity, (item) => hasIdAndCreatedAt(item) && isString(item.text, 500) && !!item.text.trim())) return invalid();
+  if (value.profile !== undefined && (!isObject(value.profile) || Object.keys(value.profile).join() !== 'name'
+    || !isCareName(value.profile.name, MAX_PATIENT_NAME))) return invalid();
   const state = value as AppState;
   const booked = state.appointments.filter((item) => item.status === 'confirmed').map((item) => `${item.date}-${item.time}`);
   const doses = state.doses.map((item) => `${item.date}-${item.time}`);

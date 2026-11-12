@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { addVisit, formatDate, localDateKey, removeVisit, upcomingVisits, type Visit } from './domain';
 import { isCalendarDate, shiftMonth, startOfMonth } from './calendar';
 import { MonthCalendar } from './month-calendar';
@@ -12,6 +12,8 @@ import type { BookingScrollAnchor } from './booking-scroll';
 import { formatClockTime } from './clock-time';
 import { suggestedVisitTime } from './visit-time';
 import { TimePicker } from './time-picker';
+import { requestReminderPermission } from './notifications';
+import { formatReminderOffset } from './reminder-settings';
 
 function VisitList({ title, visits, onDelete }: { title: string; visits: Visit[]; onDelete: (item: Visit) => void }) {
   if (!visits.length) return null;
@@ -29,7 +31,7 @@ function VisitList({ title, visits, onDelete }: { title: string; visits: Visit[]
 }
 
 export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnchor }) {
-  const { state, commit, confirm, now } = useCare();
+  const { state, commit, confirm, update, notify, setNotificationStatus, now } = useCare();
   const params = useLocalSearchParams<{ date?: string }>();
   const linkedDate = isCalendarDate(params.date) ? params.date : undefined;
   const today = localDateKey(now);
@@ -96,8 +98,25 @@ export function VisitSchedule({ scrollAnchor }: { scrollAnchor: BookingScrollAnc
         Keyboard.dismiss();
         setMonth(startOfMonth(date));
         setAdding(false);
+        offerVisitReminders();
       }
     } finally { saving.current = false; setBusy(false); }
+  };
+  // A saved visit is the moment a patient most wants a reminder; offer it once reminders are off.
+  const offerVisitReminders = () => {
+    if (Platform.OS === 'web' || state.reminders.appointment) return;
+    confirm({
+      title: '진료 전에 알려드릴까요?',
+      body: `${state.reminders.appointmentMinutesBefore.map(formatReminderOffset).join(' · ')}에 이 휴대폰으로 알려드려요. 알림 시간은 내 관리에서 바꿀 수 있어요.`,
+      label: '알림 받기',
+      cancelLabel: '괜찮아요',
+      onConfirm: () => void (async () => {
+        const permission = await requestReminderPermission();
+        setNotificationStatus(permission);
+        if (permission.status !== 'ready') { notify('알림 권한을 받지 못했어요. 휴대폰 설정 → 알림에서 메타케어를 허용해 주세요.'); return; }
+        update(value => ({ ...value, reminders: { ...value.reminders, appointment: true } }), '진료 알림을 켰어요.');
+      })(),
+    });
   };
   const askDelete = (item: Visit) => {
     confirm({

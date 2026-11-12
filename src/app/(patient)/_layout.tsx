@@ -1,10 +1,12 @@
 import { useNotificationNavigation } from '../../notification-navigation';
+import { PatientSetup } from '../../patient-setup';
 import { PatientTabs } from '../../patient-tabs';
-import { CareProvider } from '../../store';
+import { CareProvider, useCare } from '../../store';
 
 function PatientNavigation() {
   useNotificationNavigation();
-  return <PatientTabs />;
+  const { state } = useCare();
+  return state.profile ? <PatientTabs /> : <PatientSetup />;
 }
 
 export default function PatientLayout() {

@@ -63,7 +63,7 @@ type CareContextValue = {
   today: string; medicationClock?: ReturnType<typeof careClock>;
   visits: SharedVisit[]; visitsLoading: boolean;
   fetchedAt: string | null; syncing: boolean; busy: boolean; networkError: boolean; error: string | null;
-  connect: (code: string) => Promise<boolean>; patientName: string;
+  connect: (code: string, caregiverName: string) => Promise<boolean>; patientName: string;
   pendingPatient: string | null;
   retryConnectionStorage: () => Promise<boolean>; cancelPendingConnection: () => Promise<boolean>;
   refresh: () => Promise<void>; disconnect: () => Promise<boolean>;
@@ -269,10 +269,12 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearPrivateState]);
 
-  const connect = useCallback(async (rawCode: string) => {
+  const connect = useCallback(async (rawCode: string, rawName: string) => {
     if (mutationRef.current || pendingSessionRef.current || modeRef.current !== 'disconnected') return false;
     const code = rawCode.replace(/\s/g, '');
-    const caregiverName = prefs.caregiverName.trim() || '보호자';
+    // The patient sees this name, so they can tell who joined with their code.
+    const caregiverName = rawName.trim().replace(/\s+/g, ' ');
+    if (!caregiverName || caregiverName.length > 30) { setError('내 이름을 1~30자로 입력해 주세요.'); return false; }
     if (!/^\d{8}$/.test(code)) { setError('8자리 연결 코드를 입력해 주세요.'); return false; }
     mutationRef.current = true; setBusy(true); setError(null);
     const generation = ++epoch.current;
@@ -294,7 +296,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
     } finally {
       if (epoch.current === generation) { mutationRef.current = false; setBusy(false); }
     }
-  }, [commitConnection, prefs.caregiverName]);
+  }, [commitConnection]);
 
   const disconnect = useCallback(async () => {
     if (modeRef.current === 'demo') { await clearPrivateState(); return true; }
