@@ -18,12 +18,16 @@
   "overrides": {
     "glob@^13": "14.0.3",
     "minimatch@^3": "$minimatch",
-    "minimatch@^10": "11.0.4"
+    "minimatch@^10": "11.0.4",
+    "@vercel/oidc": {
+      "@vercel/cli-config": "0.3.6"
+    }
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.2.1",
+    "@vercel/queue": "0.11.0",
     "expo": "~58.0.22",
     "expo-camera": "~58.0.14",
     "expo-constants": "~58.0.13",

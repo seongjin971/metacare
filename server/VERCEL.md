@@ -29,3 +29,27 @@ vercel deploy --prebuilt --prod --cwd .preview/public-web/caregiver
 연결 코드, 기기별 접근 권한과 복약 기록은 PostgreSQL에 보관합니다. 사진도 같은 비공개 데이터베이스에 저장하며, 보호자에게 사진을 공개 URL로 제공하지 않습니다. 최대 5 MiB 사진은 인증된 요청 최대 두 번으로 전송합니다. 환자와의 연결 해제 또는 사진 참조 삭제 시 완성된 사진과 전송 중인 조각을 정리합니다.
 
 로컬 회귀 검증에는 별도의 빈 테스트 PostgreSQL을 사용합니다. `TEST_DATABASE_URL`을 그 데이터베이스로 지정하고 `npm test`를 실행하면 클라우드용 핸들러와 실제 PostgreSQL을 함께 검사합니다. 운영 데이터베이스를 테스트에 사용하지 마세요.
+
+## 보호자 미기록 알림
+
+보호자가 **관리 → 미기록 알림 받기**를 켜면, 서버가 환자의 복약 시각마다 확인 작업을 [Vercel Queues](https://vercel.com/docs/queues)에 예약합니다. 기한(예정 시각 + 보호자가 고른 15분·30분·1시간·2시간)에 서버에 기록이 없으면 보호자 휴대폰에 회차당 한 번 푸시를 보냅니다.
+
+- **잠금화면 문구:** 약 이름·시간 없이 "메타케어 · 확인할 복약 기록이 있어요"만 표시합니다. 알림을 누르면 앱에서 그날 기록이 열립니다.
+- **중복 방지:** 같은 회차는 한 번만 보냅니다. 전송 결과가 불분명하면 다시 보내지 않습니다.
+- **알림의 의미:** 서버에 기록이 도착하지 않았다는 뜻이며, 실제 미복용을 뜻하지 않습니다.
+- **해제:** 연결을 해제하거나 보호자 기기가 역할을 바꾸면 해당 기기의 알림이 꺼집니다.
+
+푸시는 Expo 푸시 서비스를 거쳐 Android에서는 FCM으로 전달됩니다. 설치 앱(APK)에서만 동작하고 Expo Go·웹에서는 켤 수 없습니다. 처음 한 번 아래 설정이 필요합니다.
+
+1. [Firebase 콘솔](https://console.firebase.google.com/)에서 프로젝트를 만들고, 패키지 이름 `com.metacare.demo`로 Android 앱을 추가한 뒤 `google-services.json`을 내려받습니다. 이 파일은 저장소에 커밋하지 않습니다(`.gitignore`에 포함).
+2. 그 파일을 EAS의 **파일 환경 변수** `METACARE_GOOGLE_SERVICES_FILE`로 등록합니다. `app.config.js`가 빌드 시 이 값을 `android.googleServicesFile`로 사용합니다.
+
+   ```powershell
+   npx eas-cli env:create --name METACARE_GOOGLE_SERVICES_FILE --type file --value ./google-services.json --environment preview --environment production
+   ```
+
+3. Firebase 콘솔 → 프로젝트 설정 → 서비스 계정에서 **FCM V1용 비공개 키(JSON)**를 만들고 `npx eas-cli credentials` → Android → Push Notifications (FCM V1)에 업로드합니다. 비공개 키는 소스·앱 번들·채팅에 넣지 마세요. [Expo FCM 설정](https://docs.expo.dev/push-notifications/fcm-credentials/)
+4. Expo 계정에서 Push Security를 켠 경우에만 API 프로젝트의 서버 환경 변수에 `EXPO_ACCESS_TOKEN`을 추가합니다.
+5. API를 재배포합니다. 빌드 중 마이그레이션이 알림 테이블을 준비하고, 11월 3일 알림 중지 때 넣은 제약을 해제합니다. 그 다음 새 APK를 빌드합니다.
+
+로컬 공유 서버(`npm run care:server`)도 같은 규칙으로 타이머를 돌려 Expo 푸시를 보냅니다. 서버가 켜져 있어야 발송되며, 등록 정보는 `server/data/care.json`에 저장됩니다.

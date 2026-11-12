@@ -7,6 +7,10 @@
   "functions": {
     "api/care.mjs": {
       "includeFiles": "care-runtime/**"
+    },
+    "api/overdue.mjs": {
+      "includeFiles": "care-runtime/**",
+      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "metacare-overdue", "retryAfterSeconds": 30 }]
     }
   },
   "routes": [

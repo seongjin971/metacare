@@ -42,7 +42,7 @@ export default function TodayScreen() {
         <Icon name="chevron-forward" size={18} color={colors.teal} />
       </MotionPressable>
     </Link>}
-    {phone && summary.overdue === 0 && <CareButton title={`${patient}님께 전화하기`} icon="call-outline" secondary onPress={call} />}
+    {!!phone && summary.overdue === 0 && <CareButton title={`${patient}님께 전화하기`} icon="call-outline" secondary onPress={call} />}
     <SyncStatus />
     <PhotoViewer dose={photo} onClose={() => setPhoto(null)} />
   </CarePage>;

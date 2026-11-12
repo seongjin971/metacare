@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { carePool, enqueueOverdue } from '../server/queue-runtime.mjs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 
@@ -13,10 +13,7 @@ export default {
     }
     if (!handler) {
       const { createVercelCareHandler } = require(resolve(process.cwd(), 'care-runtime/server/vercel-care.js'));
-      const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3,
-        idleTimeoutMillis: 5000, connectionTimeoutMillis: 5000, allowExitOnIdle: true });
-      pool.on('error', () => console.warn('MetaCare database closed an idle connection.'));
-      handler = createVercelCareHandler(pool);
+      handler = createVercelCareHandler(carePool(), { enqueue: enqueueOverdue });
     }
     return handler(request);
   },
