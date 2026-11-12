@@ -3,7 +3,7 @@ import { AppState as NativeAppState, Platform, Share, StyleSheet, Switch, Text, 
 import { careRequest, CareApiError } from '../shared/care-api';
 import { clearSession, readSession, writeSession } from '../shared/care-session';
 import type { PatientConnection as Connection, PatientSnapshotUpdate, PhotoTransfer } from '../shared/care-types';
-import { uploadSharedPhoto } from '../shared/care-photo-parts';
+import { PhotoTooLargeError, uploadSharedPhoto } from '../shared/care-photo-parts';
 import { MAX_SHARED_VISITS } from '../shared/care-visit';
 import type { AppState } from './domain';
 import { makeCareSnapshot } from './caregiver-snapshot';
@@ -46,6 +46,8 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
   const idle = useRef(Promise.resolve());
   const generation = useRef(0);
   const uploaded = useRef(new Set<string>());
+  // Older builds stored photos above the sharing limit. The caregiver sees the record without the photo.
+  const unshareable = useRef(new Set<string>());
   const published = useRef('');
   const publishedAt = useRef(0);
 
@@ -124,7 +126,7 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
     for (const id of references) {
       if (!valid() || !foreground.current) return;
       if (durable.current !== state) { setPhotosPending(true); return; }
-      if (uploaded.current.has(id)) continue;
+      if (uploaded.current.has(id) || unshareable.current.has(id)) continue;
       const photo = state.doses.find(dose => dose.photo?.id === id)?.photo;
       if (!photo) continue;
       try {
@@ -135,6 +137,7 @@ export function PatientSharingProvider({ durableState, onActiveChange, children 
         uploaded.current.add(id);
       } catch (caught) {
         if (caught instanceof CareApiError && caught.status === 401) throw caught;
+        if (caught instanceof PhotoTooLargeError) { unshareable.current.add(id); continue; }
         failed = true;
         if (caught instanceof CareApiError && caught.status !== 400) break;
       }

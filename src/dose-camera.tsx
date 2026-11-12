@@ -7,6 +7,8 @@ import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, C, Icon, s } from './ui';
 import { verifyDosePhoto, type DoseCapture, type VerifiedDoseCapture } from './verify-dose-photo';
+import { doseSlot } from './medicine-pouch-check';
+import { choosePictureSize } from './picture-size';
 import { FadeIn, MotionPressable as Pressable, useReducedMotion } from './motion';
 
 type Props = {
@@ -35,6 +37,20 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
   const [error, setError] = useState('');
   const [capture, setCapture] = useState<DoseCapture | null>(null);
   const [verified, setVerified] = useState<VerifiedDoseCapture | null>(null);
+  const [pictureSize, setPictureSize] = useState<string | undefined>();
+  const sizeChecked = useRef(false);
+
+  const onCameraReady = async () => {
+    if (!alive.current || !active.current) return;
+    if (Platform.OS !== 'web' && !sizeChecked.current && camera.current) {
+      sizeChecked.current = true;
+      try {
+        const size = choosePictureSize(await camera.current.getAvailablePictureSizesAsync());
+        if (size && alive.current) setPictureSize(size);
+      } catch { /* Keep the default size; saving still rejects photos above the sharing limit. */ }
+    }
+    if (alive.current && active.current) setReady(true);
+  };
 
   const checkPermission = useCallback(async () => {
     try { await getPermission(); }
@@ -129,7 +145,7 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
       setReady(false);
       busyRef.current = 'verify';
       setBusy('verify');
-      const result = await verifyDosePhoto(captured);
+      const result = await verifyDosePhoto(captured, doseSlot(label));
       if (!isCurrent()) return;
       if (!result.ok) {
         setError(result.message);
@@ -186,7 +202,8 @@ export function DoseCamera({ label, onClose, onSave }: Props) {
                   flash="off"
                   mute
                   autofocus="on"
-                  onCameraReady={() => { if (alive.current && active.current) setReady(true); }}
+                  pictureSize={pictureSize}
+                  onCameraReady={() => { void onCameraReady(); }}
                   onMountError={() => {
                     if (!alive.current) return;
                     setReady(false);

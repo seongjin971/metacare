@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { downloadSharedPhoto, MAX_PHOTO_BYTES, PHOTO_PART_BYTES, uploadSharedPhoto } from '../shared/care-photo-parts.ts';
+import { downloadSharedPhoto, MAX_PHOTO_BYTES, PHOTO_PART_BYTES, PHOTO_TRANSFER_TIMEOUT_MS, PhotoTooLargeError, uploadSharedPhoto } from '../shared/care-photo-parts.ts';
 
 const version = '0123456789abcdef0123456789abcdef';
 const active = () => true;
@@ -61,4 +61,16 @@ test('inconsistent photo versions cannot be combined into an image', async () =>
     version: path.endsWith('/0') ? version : 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   } as T);
   await assert.rejects(downloadSharedPhoto(download, 'test', 'guardian', 'parts-v1', active), /변경/);
+});
+
+test('photo transfers use the long timeout and oversized photos fail permanently', async () => {
+  const timeouts: (number | undefined)[] = [];
+  const request = async <T>(_path: string, options: { token: string; timeoutMs?: number }) => {
+    timeouts.push(options.timeoutMs);
+    return { uploadId: version } as T;
+  };
+  await uploadSharedPhoto(request, 'test', 'patient', makeUri(PHOTO_PART_BYTES + 1), 'parts-v1', active);
+  await uploadSharedPhoto(request, 'test', 'patient', makeUri(10), undefined, active);
+  assert.deepEqual(timeouts, [PHOTO_TRANSFER_TIMEOUT_MS, PHOTO_TRANSFER_TIMEOUT_MS, PHOTO_TRANSFER_TIMEOUT_MS]);
+  await assert.rejects(uploadSharedPhoto(request, 'test', 'patient', makeUri(MAX_PHOTO_BYTES + 1), 'parts-v1', active), PhotoTooLargeError);
 });

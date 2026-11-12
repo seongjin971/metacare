@@ -3,10 +3,18 @@ import type { PhotoTransfer } from './care-types.ts';
 // Three MiB encodes to 4,194,304 base64 bytes, leaving room for JSON under the 4.5 MB function limit.
 export const PHOTO_PART_BYTES = 3 * 1024 * 1024;
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+/** A multi-megabyte part can take far longer than an ordinary JSON request on a mobile uplink. */
+export const PHOTO_TRANSFER_TIMEOUT_MS = 60_000;
 const PART_CHARACTERS = PHOTO_PART_BYTES / 3 * 4;
 export type PhotoMime = 'image/jpeg' | 'image/png' | 'image/webp';
 type PhotoPart = { mime: PhotoMime; bytes: number; base64: string; version: string };
-type PhotoRequest = <T>(path: string, options: { token: string; method?: string; body?: unknown }) => Promise<T>;
+type PhotoRequest = <T>(path: string, options: { token: string; method?: string; body?: unknown; timeoutMs?: number }) => Promise<T>;
+const timeoutMs = PHOTO_TRANSFER_TIMEOUT_MS;
+
+/** The stored file can never be shared, so retrying it cannot succeed. */
+export class PhotoTooLargeError extends Error {
+  constructor() { super('5 MiB 이하의 사진만 전송할 수 있어요.'); this.name = 'PhotoTooLargeError'; }
+}
 
 export function isPhotoMime(value: unknown): value is PhotoMime {
   return value === 'image/jpeg' || value === 'image/png' || value === 'image/webp';
@@ -36,21 +44,22 @@ export async function uploadSharedPhoto(request: PhotoRequest, id: string, token
   const path = `/v1/patient/photos/${encodeURIComponent(id)}`;
   if (!active()) return false;
   if (transfer !== 'parts-v1') {
-    await request(path, { method: 'PUT', token, body: { dataUri } });
+    await request(path, { method: 'PUT', token, body: { dataUri }, timeoutMs });
     return active();
   }
   const header = /^data:(image\/(?:jpeg|png|webp));base64,/.exec(dataUri);
   if (!header) throw new Error('사진 형식이 올바르지 않아요.');
   const base64 = dataUri.slice(header[0].length);
   const bytes = base64Bytes(base64);
-  if (!isPhotoSize(bytes) || base64.length % 4 !== 0) throw new Error('5 MiB 이하의 사진만 전송할 수 있어요.');
+  if (base64.length % 4 !== 0 || bytes <= 0) throw new Error('사진 형식이 올바르지 않아요.');
+  if (!isPhotoSize(bytes)) throw new PhotoTooLargeError();
   const first = await request<{ uploadId: string }>(`${path}/parts/0`, {
-    method: 'PUT', token, body: { mime: header[1], bytes, base64: base64.slice(0, PART_CHARACTERS) },
+    method: 'PUT', token, body: { mime: header[1], bytes, base64: base64.slice(0, PART_CHARACTERS) }, timeoutMs,
   });
   if (!active()) return false;
   if (!isPhotoVersion(first?.uploadId)) throw new Error('사진 저장 응답을 확인할 수 없어요.');
   if (bytes > PHOTO_PART_BYTES) {
-    await request(`${path}/parts/1`, { method: 'PUT', token, body: { uploadId: first.uploadId, base64: base64.slice(PART_CHARACTERS) } });
+    await request(`${path}/parts/1`, { method: 'PUT', token, body: { uploadId: first.uploadId, base64: base64.slice(PART_CHARACTERS) }, timeoutMs });
   }
   return active();
 }
@@ -60,18 +69,18 @@ export async function downloadSharedPhoto(request: PhotoRequest, id: string, tok
   const path = `/v1/caregiver/photos/${encodeURIComponent(id)}`;
   if (!active()) return null;
   if (transfer !== 'parts-v1') {
-    const response = await request<{ dataUri: string }>(path, { token });
+    const response = await request<{ dataUri: string }>(path, { token, timeoutMs });
     if (!active()) return null;
     if (typeof response?.dataUri !== 'string' || !/^data:image\/(?:jpeg|png|webp);base64,/.test(response.dataUri)) throw new Error('사진 형식을 읽을 수 없어요.');
     return response.dataUri;
   }
-  const first = await request<PhotoPart>(`${path}/parts/0`, { token });
+  const first = await request<PhotoPart>(`${path}/parts/0`, { token, timeoutMs });
   if (!active()) return null;
   if (!first || !isPhotoSize(first.bytes) || !isPhotoMime(first.mime) || !isPhotoVersion(first.version)) throw new Error('사진 정보를 확인할 수 없어요.');
   checkPart(first, Math.min(first.bytes, PHOTO_PART_BYTES));
   let uri = `data:${first.mime};base64,${first.base64}`;
   if (first.bytes > PHOTO_PART_BYTES) {
-    const second = await request<PhotoPart>(`${path}/parts/1/${first.version}`, { token });
+    const second = await request<PhotoPart>(`${path}/parts/1/${first.version}`, { token, timeoutMs });
     if (!active()) return null;
     if (!second || second.version !== first.version || second.bytes !== first.bytes || second.mime !== first.mime) throw new Error('사진이 변경됐어요. 다시 열어 주세요.');
     checkPart(second, first.bytes - PHOTO_PART_BYTES);

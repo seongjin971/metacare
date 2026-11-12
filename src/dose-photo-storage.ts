@@ -1,8 +1,8 @@
 import { Directory, File, Paths } from 'expo-file-system';
+import { MAX_PHOTO_BYTES } from '../shared/care-photo-parts';
 import { normalizeDosePhoto, normalizePhotoVerification, type DosePhoto, type PhotoVerification } from './dose-photo';
 
 export type DosePhotoCapture = { uri: string; capturedAt: string; width: number; height: number; verification: PhotoVerification };
-const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 
 function directory() {
   return new Directory(Paths.document, 'dose-photos');
@@ -30,7 +30,7 @@ export async function saveDosePhoto(capture: DosePhotoCapture): Promise<DosePhot
   if (!source.uri.startsWith(`${Paths.cache.uri.replace(/\/$/, '')}/`) || !source.exists || source.size <= 0) {
     throw new Error('촬영한 사진을 찾을 수 없어요. 다시 촬영해 주세요.');
   }
-  if (source.size > MAX_PHOTO_BYTES) throw new Error('사진 용량이 너무 커요. 다시 촬영해 주세요.');
+  if (source.size > MAX_PHOTO_BYTES) throw new Error('사진 용량이 5MB를 넘어요. 약봉투 가까이에서 다시 촬영해 주세요.');
   const target = photoFile(photo);
   let copyStarted = false;
   try {

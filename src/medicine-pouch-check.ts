@@ -15,11 +15,19 @@ export type MedicinePouchCheck =
   | { ok: true; method: 'medicine-pouch-text-v1' }
   | {
     ok: false;
-    reason: 'invalid' | 'too_dark' | 'too_blurry' | 'not_pouch' | 'uncertain';
+    reason: 'invalid' | 'too_dark' | 'too_blurry' | 'not_pouch' | 'uncertain' | 'wrong_slot';
     message: string;
   };
 
 type FailureReason = Extract<MedicinePouchCheck, { ok: false }>['reason'];
+
+const DOSE_SLOTS = ['아침', '점심', '저녁'] as const;
+export type DoseSlot = typeof DOSE_SLOTS[number];
+
+/** Dose labels start with their slot ("저녁 복용약"); a once-daily dose has none. */
+export function doseSlot(label: string): DoseSlot | undefined {
+  return DOSE_SLOTS.find(slot => label.startsWith(slot));
+}
 
 function fail(reason: FailureReason, message: string): MedicinePouchCheck {
   return { ok: false, reason, message };
@@ -44,7 +52,7 @@ function isAnalysis(value: unknown): value is PhotoAnalysis {
  * authenticity or medication ingestion. Thresholds need real-pouch calibration.
  * Return only a method/reason; never persist OCR text as verification metadata.
  */
-export function checkMedicinePouch(analysis: unknown): MedicinePouchCheck {
+export function checkMedicinePouch(analysis: unknown, slot?: DoseSlot): MedicinePouchCheck {
   if (!isAnalysis(analysis)) {
     return fail('invalid', '사진을 검사하지 못했어요. 다시 촬영해 주세요.');
   }
@@ -84,6 +92,11 @@ export function checkMedicinePouch(analysis: unknown): MedicinePouchCheck {
     || (mealMarker && timing && dispensingSource)
     || (doseLabel && timing);
   if (unitDoseInstructions || ((dispensingSource || doseLabel) && dosingInstructions)) {
+    // A pouch printed only for other meals cannot verify this dose. Pouches without a meal word stay eligible.
+    const printed = DOSE_SLOTS.filter(item => new RegExp(`${item}(?!약속)`).test(text));
+    if (slot && printed.length && !printed.includes(slot)) {
+      return fail('wrong_slot', `${printed.join('·')} 약봉투로 보여요. ${slot} 약봉투를 촬영해 주세요.`);
+    }
     return { ok: true, method: 'medicine-pouch-text-v1' };
   }
   if (dispensingSource || doseLabel || mealMarker || timing || doseAmount || intakeInstruction) {
