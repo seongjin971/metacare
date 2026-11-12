@@ -28,6 +28,11 @@ function snapshot(patientName = '김환자'): SnapshotInput {
   };
 }
 
+/** Today's rows as the patient app sends them before any dose is recorded. */
+function pendingDay(times: string[], date = '2026-11-01'): SnapshotInput['doses'] {
+  return times.map(time => ({ id: `dose-${date}-${time.replace(':', '')}`, date, time, label: '복용약', status: 'pending' as const }));
+}
+
 async function fixture(t: TestContext, extra: Parameters<typeof startCareServer>[0] = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'metacare-care-'));
   const dataPath = join(directory, 'care.json');
@@ -76,7 +81,7 @@ test('closed apps receive one overdue push per slot, including after server rest
   const p = await f.patient();
   const g = await f.pair(p);
   const shared = snapshot();
-  await f.api('/v1/patient/snapshot', 'PUT', p, { ...shared, doses: [] });
+  await f.api('/v1/patient/snapshot', 'PUT', p, { ...shared, doses: pendingDay(['08:00', '18:00']) });
   assert.equal((await f.api(alertsPath, 'PUT', p, enableAlerts)).response.status, 401);
   assert.deepEqual((await f.api(alertsPath, 'GET', g)).body, { enabled: false, threshold: 30 });
   const initial = (await f.api(alertsPath, 'PUT', g, { ...enableAlerts, expectedRegistrationId: null })).body;
@@ -125,7 +130,7 @@ test('known push refusal is rechecked before retry; uncertain provider acceptanc
   const p = await f.patient();
   const g = await f.pair(p);
   const shared = snapshot();
-  await f.api('/v1/patient/snapshot', 'PUT', p, { ...shared, doses: [] });
+  await f.api('/v1/patient/snapshot', 'PUT', p, { ...shared, doses: pendingDay(['08:00', '18:00']) });
   await f.api(alertsPath, 'PUT', g, enableAlerts);
   clock = Date.parse('2026-11-01T08:30:00+09:00');
   await f.processAlerts();
@@ -151,7 +156,7 @@ test('an elapsed deadline wakes the HTTP server timer without a poll from either
   });
   const p = await f.patient();
   const g = await f.pair(p);
-  await f.api('/v1/patient/snapshot', 'PUT', p, { ...snapshot(), doses: [] });
+  await f.api('/v1/patient/snapshot', 'PUT', p, { ...snapshot(), doses: pendingDay(['08:00', '18:00']) });
   start = Date.now();
   assert.equal((await f.api(alertsPath, 'PUT', g, enableAlerts)).response.status, 200);
   const timeout = setTimeout(() => received.reject(new Error('Background timer did not send.')), 5000);
@@ -168,8 +173,8 @@ test('transferring a push token stops the previous family’s notifications, and
   const second = await f.patient();
   const guardianA = await f.pair(first);
   const guardianB = await f.pair(second);
-  await f.api('/v1/patient/snapshot', 'PUT', first, { ...snapshot(), schedule: { frequency: 'once', times: ['08:00'] }, doses: [] });
-  await f.api('/v1/patient/snapshot', 'PUT', second, { ...snapshot(), schedule: { frequency: 'once', times: ['09:00'] }, doses: [] });
+  await f.api('/v1/patient/snapshot', 'PUT', first, { ...snapshot(), schedule: { frequency: 'once', times: ['08:00'] }, doses: pendingDay(['08:00']) });
+  await f.api('/v1/patient/snapshot', 'PUT', second, { ...snapshot(), schedule: { frequency: 'once', times: ['09:00'] }, doses: pendingDay(['09:00']) });
   await f.api(alertsPath, 'PUT', guardianA, enableAlerts);
   await f.api(alertsPath, 'PUT', guardianB, enableAlerts);
   assert.deepEqual((await f.api(alertsPath, 'GET', guardianA)).body, { enabled: false, threshold: 30 });

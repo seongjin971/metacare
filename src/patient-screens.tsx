@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { Platform, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { Dose, localDateKey, MAX_PATIENT_NAME, recordDose, setMedicationSchedule, setPatientName, setReminderOffsets } from './domain';
+import { Dose, localDateKey, MAX_PATIENT_NAME, recordDose, setMedicationSchedule, setPatientName, setReminderOffsets, startedOn } from './domain';
 import { shiftMonth, startOfMonth } from './calendar';
 import { MonthCalendar } from './month-calendar';
 import { dosesForHistoryDate, summarizeDosesByDate } from './medication-history';
@@ -124,9 +124,18 @@ function DoseRow({ dose, canCapture, overdueBy }: { dose: Dose; canCapture: bool
 }
 
 /** Today's single next action, so a missed or due dose is the first thing the patient sees. */
-function NextDoseCard({ doses, now }: { doses: Dose[]; now: Date }) {
+function NextDoseCard({ doses, now, firstDay }: { doses: Dose[]; now: Date; firstDay: boolean }) {
+  const { state: care } = useCare();
   const canCapture = isPhotoAnalyzerAvailable();
-  if (!doses.length) return null;
+  if (!doses.length) {
+    if (!firstDay) return null;
+    const first = care.medicationSchedule.times[0];
+    return <Card>
+      <Text style={s.micro}>다음 복약</Text>
+      <Text style={styles.nextTitle}>내일 {formatClockTime(first)}부터 기록해요</Text>
+      <Text style={s.muted}>오늘 복약 시간은 설정 전에 모두 지났어요. 내일부터 시간마다 약봉투를 촬영해 주세요.</Text>
+    </Card>;
+  }
   const next = nextDose(doses, now);
   if (!next) return <Card style={{ backgroundColor: C.mint, borderColor: '#cdeee4' }}>
     <View style={s.inline}><Icon name="checkmark-circle" size={26} color={C.green} /><Text style={[s.section, { color: C.green }]}>오늘 약을 모두 드셨어요</Text></View>
@@ -181,17 +190,20 @@ export function MedicationScreen() {
   const doses = dosesForHistoryDate(state.doses, date, today);
   const done = doses.filter(dose => dose.status === 'taken').length;
   const summaries = summarizeDosesByDate(state.doses, today);
+  const firstDay = startedOn(state, today);
   return (
     <Page title="복약">
       <View style={styles.stack}>
-        {date === today && <NextDoseCard doses={doses} now={now} />}
-        {date === today ? <Card>
+        {date === today && <NextDoseCard doses={doses} now={now} firstDay={firstDay} />}
+        {date === today && doses.length > 0 ? <Card>
           <View style={s.inline}>
             <Text style={s.section}>오늘 복약</Text>
-            {doses.length > 0 && <Text style={[s.muted, done === doses.length && { color: C.green }]}>{done}/{doses.length}</Text>}
+            <Text style={[s.muted, done === doses.length && { color: C.green }]}>{done}/{doses.length}</Text>
           </View>
-          {doses.length ? <DoseList doses={doses} now={now} /> : <Text style={s.muted}>복약 일정이 없어요.</Text>}
-        </Card> : <>
+          {firstDay && doses.length < state.medicationSchedule.times.length
+            && <Text style={s.micro}>설정 전에 지난 복약 시간은 빼고, 오늘은 {doses[0].label}부터 기록해요.</Text>}
+          <DoseList doses={doses} now={now} />
+        </Card> : date === today ? (firstDay ? null : <Card><Text style={s.muted}>복약 일정이 없어요.</Text></Card>) : <>
           <Button title="오늘로 돌아가기" icon="arrow-back" secondary small onPress={goToToday} />
           <MedicationHistoryCard key={date} doses={doses} sample={sample} emptyMessage={date > today ? '아직 복약 기록이 없어요.' : '복약 기록이 없어요.'} />
         </>}

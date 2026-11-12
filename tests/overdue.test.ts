@@ -5,7 +5,8 @@ import { eligibleOverdueSlot, nextOverdueSlot, parseOverdueSettings, RetryablePu
 
 const snapshot: CareSnapshot = {
   patientName: '환자', schedule: { frequency: 'once', times: ['08:00'] },
-  doses: [], updatedAt: '2026-11-01T01:00:00.000Z', timeZone: 'Asia/Seoul',
+  // Last uploaded well before the tested days, so their slots follow the recurring schedule.
+  doses: [], updatedAt: '2026-01-01T00:00:00.000Z', timeZone: 'Asia/Seoul',
 };
 const slot = { date: '2026-11-02', time: '08:00', dueAt: Date.parse('2026-11-01T23:30:00Z') };
 
@@ -64,4 +65,14 @@ test('Expo payload points to a dose in the correct pairing and explicit recipien
   await assert.rejects(() => sendOverduePush(token, slot, connectedAt), RetryablePushError);
   assert.throws(() => parseOverdueSettings({ enabled: true, threshold: 30, expoPushToken: 'abc' }));
   assert.throws(() => parseOverdueSettings({ enabled: true, threshold: 30, expoPushToken: token, timeZone: 'not-a-time-zone' }));
+});
+
+test('a day the patient app uploaded with no rows has nothing due, but the next day follows the schedule', () => {
+  // A new patient finished setup at 21:00 KST after the last dose, so today has no rows.
+  const lateSetup: CareSnapshot = { ...snapshot, schedule: { frequency: 'twice', times: ['08:00', '19:00'] },
+    updatedAt: '2026-11-12T12:00:00.000Z' };
+  const next = nextOverdueSlot(lateSetup, 120, Date.parse('2026-11-12T12:00:00.000Z'));
+  assert.deepEqual(next, { date: '2026-11-13', time: '08:00', dueAt: Date.parse('2026-11-13T01:00:00.000Z') });
+  const evening = { date: '2026-11-12', time: '19:00', dueAt: Date.parse('2026-11-12T12:00:00.000Z') };
+  assert.equal(eligibleOverdueSlot(lateSetup, 120, evening, evening.dueAt), false);
 });

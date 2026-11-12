@@ -39,11 +39,14 @@ export function isOverdueJob(value: unknown): value is OverdueJob {
 const DAY = 86_400_000;
 const MAX_NOTIFICATION_DELAY = 60 * 60_000;
 
-function slotsForDate(snapshot: CareSnapshot, date: string) {
+function slotsForDate(snapshot: CareSnapshot, date: string, wall: (epoch: number) => string) {
   const rows = snapshot.doses.filter(dose => dose.date === date);
-  // After a dose is recorded, changing the recurring schedule may deliberately leave that
-  // day's actual rows unchanged. Future days still work without opening the patient app.
-  return rows.length ? rows : snapshot.schedule.times.map(time => ({ time, status: 'pending' as const }));
+  if (rows.length) return rows;
+  // The patient app creates a day's rows whenever it is open that day. No rows on or before the
+  // last upload's date means nothing was due (for example a new patient set up after the last
+  // dose). Later days still follow the schedule without opening the patient app.
+  if (date <= wall(Date.parse(snapshot.updatedAt)).slice(0, 10)) return [];
+  return snapshot.schedule.times.map(time => ({ time, status: 'pending' as const }));
 }
 
 function compareSlots(left: OverdueSlot, right: OverdueSlot) {
@@ -61,7 +64,7 @@ export function nextOverdueSlot(snapshot: CareSnapshot | null, threshold: number
   let earliest: OverdueSlot | null = null;
   for (let i = 0; i < 3; i++) {
     const date = new Date(from + i * DAY).toISOString().slice(0, 10);
-    for (const { time } of slotsForDate(snapshot, date)) {
+    for (const { time } of slotsForDate(snapshot, date, wall)) {
       const slot = { date, time, dueAt: instant(date, time) + threshold * 60_000 };
       if (slot.dueAt <= cutoff || (completed && compareSlots(slot, completed) <= 0)) continue;
       if (!earliest || compareSlots(slot, earliest) < 0) earliest = slot;
@@ -72,8 +75,9 @@ export function nextOverdueSlot(snapshot: CareSnapshot | null, threshold: number
 
 export function eligibleOverdueSlot(snapshot: CareSnapshot | null, threshold: number, slot: OverdueSlot, nowMs: number, fallbackZone?: string): boolean {
   if (!snapshot || nowMs < slot.dueAt || nowMs - slot.dueAt > MAX_NOTIFICATION_DELAY) return false;
-  if (careClock(snapshot.timeZone ?? fallbackZone).instant(slot.date, slot.time) + threshold * 60_000 !== slot.dueAt) return false;
-  const doses = slotsForDate(snapshot, slot.date).filter(item => item.time === slot.time);
+  const clock = careClock(snapshot.timeZone ?? fallbackZone);
+  if (clock.instant(slot.date, slot.time) + threshold * 60_000 !== slot.dueAt) return false;
+  const doses = slotsForDate(snapshot, slot.date, clock.wall).filter(item => item.time === slot.time);
   return doses.length > 0 && doses.every(item => item.status === 'pending');
 }
 

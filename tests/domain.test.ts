@@ -4,7 +4,7 @@ import { photoFor } from './fixtures.ts';
 import {
   addDays, addVisit, createInitialState, ensureDailyDoses, localDateKey,
   hospitalNames, recordDose, removeVisit, selectHospital, setHospitalContact, setSharing, upcomingVisits,
-  validateLoadedState, visibleDoses, setPatientName,
+  validateLoadedState, visibleDoses, setPatientName, completeSetup, startedOn,
 } from '../src/domain.ts';
 
 const now = new Date(2026, 9, 28, 9, 0, 0);
@@ -198,4 +198,34 @@ test('the patient name is trimmed, bounded, and survives a reload', () => {
   assert.deepEqual(validateLoadedState(JSON.parse(JSON.stringify(named))).profile, { name: '김 정희' });
   assert.equal(validateLoadedState(JSON.parse(JSON.stringify(createInitialState()))).profile, undefined, 'older saves still need setup');
   assert.throws(() => validateLoadedState({ ...JSON.parse(JSON.stringify(named)), profile: { name: '' } }));
+});
+
+test('a patient who sets up at 15:00 starts with that evening, not a missed morning and lunch', () => {
+  const three = { frequency: 'three' as const, times: ['08:00', '13:00', '19:00'] };
+  const at = (hour: number, minute = 0) => new Date(2026, 10, 12, hour, minute);
+  const afternoon = completeSetup(createInitialState(at(7)), '김정희', three, at(15));
+  assert.deepEqual(afternoon.doses.map(dose => dose.time), ['19:00']);
+  assert.equal(startedOn(afternoon, '2026-11-12'), true);
+  // A refresh later the same day keeps the trimmed day instead of refilling it.
+  assert.equal(ensureDailyDoses(afternoon, at(16)), afternoon);
+  // The next day is a full day.
+  assert.deepEqual(ensureDailyDoses(afternoon, new Date(2026, 10, 13, 7)).doses.filter(dose => dose.date === '2026-11-13').map(dose => dose.time), ['08:00', '13:00', '19:00']);
+
+  // A dose within the 30-minute grace period can still be photographed.
+  assert.deepEqual(completeSetup(createInitialState(at(7)), '김정희', three, at(13, 10)).doses.map(dose => dose.time), ['13:00', '19:00']);
+
+  // Setting up after the last dose leaves today empty, and stays empty on refresh.
+  const late = completeSetup(createInitialState(at(7)), '김정희', three, at(21));
+  assert.deepEqual(late.doses.filter(dose => dose.date === '2026-11-12'), []);
+  assert.equal(ensureDailyDoses(late, at(22)), late);
+  assert.deepEqual(validateLoadedState(JSON.parse(JSON.stringify(late))).profile, late.profile);
+});
+
+test('an upgraded user with recorded doses keeps today intact when the setup screen appears', () => {
+  const morning = new Date(2026, 10, 12, 8, 30);
+  const base = createInitialState(new Date(2026, 10, 12, 7));
+  const recorded = recordDose(base, base.doses[0].id, true, morning, photoFor(morning));
+  const done = completeSetup(recorded, '김정희', recorded.medicationSchedule, new Date(2026, 10, 12, 15));
+  assert.equal(done.profile?.startedAt, undefined);
+  assert.equal(done.doses.filter(dose => dose.date === '2026-11-12').length, recorded.doses.length);
 });

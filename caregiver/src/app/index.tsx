@@ -16,12 +16,17 @@ export default function TodayScreen() {
   const doses = (data?.snapshot?.doses ?? []).filter(dose => dose.date === today).sort((a, b) => a.time.localeCompare(b.time));
   const summary = summarizeDoses(doses, prefs.threshold, now, medicationClock);
   const patient = prefs.patientNickname || patientName;
+  const updatedAt = data?.snapshot?.updatedAt;
+  // The patient app sends today's rows whenever it is open; none after an upload today means nothing was due.
+  const uploadedToday = !!updatedAt && !!medicationClock && medicationClock.wall(Date.parse(updatedAt)).slice(0, 10) === today;
   const [nextVisit] = visits;
   const phone = prefs.phone.replace(/[^\d+]/g, '');
   const call = () => { void Linking.openURL(`tel:${phone}`).catch(() => undefined); };
   return <CarePage title="오늘">
     <View style={{ gap: 5 }}><Text style={s.micro}>{formatDate(today, { month: 'long', day: 'numeric', weekday: 'long' })}</Text><Text accessibilityRole="header" style={s.title}>{`${patient}의 복약 기록`}</Text></View>
-    {summary.total === 0 ? <Card><Empty icon="time-outline" title="오늘 일정이 아직 전달되지 않았어요" body="환자가 복약 일정을 설정하고 공유하면 이곳에서 확인할 수 있어요." /></Card> :
+    {summary.total === 0 ? <Card>{uploadedToday
+      ? <Empty icon="time-outline" title="오늘은 기록할 복약이 없어요" body="환자가 오늘 사용을 시작했다면 다음 복약 시간부터 기록돼요." />
+      : <Empty icon="time-outline" title="오늘 일정이 아직 전달되지 않았어요" body="환자가 복약 일정을 설정하고 공유하면 이곳에서 확인할 수 있어요." />}</Card> :
       <View style={{ gap: 12 }}>
         <View style={s.row}><Text style={s.section}>오늘 시간표</Text><Text style={s.micro}>{summary.recorded}/{summary.total}회 기록됨</Text></View>
         {summary.overdue > 0 && <View style={[s.inline, { gap: 8 }]}>
