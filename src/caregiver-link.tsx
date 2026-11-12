@@ -10,6 +10,8 @@ import { makeCareSnapshot } from './caregiver-snapshot';
 import { completePatientRevocation, readPatientSharingSession, reconcileVisitConsent, requestPatientRevocation, type PatientSharingSession } from './caregiver-session';
 import { readPhotoForSharing } from './caregiver-photo-upload';
 import { Button, C, Card, Icon, s } from './ui';
+import { MotionPressable as Pressable } from './motion';
+import { relativeTime } from './relative-time';
 
 const SESSION_KEY = 'metacare.patient-sharing.v1';
 type Invitation = { code: string; expiresAt: string };
@@ -23,7 +25,7 @@ type Sharing = {
 const SharingContext = createContext<Sharing | null>(null);
 
 function errorText(error: unknown) {
-  return error instanceof Error ? error.message : '서버에 연결하지 못했어요. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.';
+  return error instanceof Error ? error.message : '인터넷에 연결되지 않았어요. 연결을 확인한 뒤 다시 시도해 주세요.';
 }
 
 export function PatientSharingProvider({ durableState, onActiveChange, children }: {
@@ -340,7 +342,10 @@ function InviteCodeHandoff({ invite, expiresIn }: { invite: Invitation; expiresI
   </>;
 }
 
-export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: string; body: string; label: string; cancelLabel?: string; destructive?: boolean; onConfirm: () => void }) => void }) {
+export function CaregiverLinkCard({ confirm, onEditName }: {
+  confirm: (dialog: { title: string; body: string; label: string; cancelLabel?: string; destructive?: boolean; onConfirm: () => void }) => void;
+  onEditName?: () => void;
+}) {
   const sharing = useContext(SharingContext);
   if (!sharing) throw new Error('PatientSharingProvider required');
   const { ready, busy, stopping, session, connection, error, photosPending, clock, patientName, invite, disconnect, setVisitSharing, retry } = sharing;
@@ -352,7 +357,7 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
   const expiresIn = session?.invite ? Math.max(0, Math.floor((Date.parse(session.invite.expiresAt) - clock) / 1000)) : 0;
   const stop = () => confirm({
     title: established ? '보호자 연결을 해제할까요?' : '보호자 초대를 취소할까요?',
-    body: '보호자의 접근 권한과 연결 코드를 취소하고 서버에 공유된 기록·사진을 삭제합니다. 기기에 저장된 내 기록은 유지됩니다.',
+    body: '보호자는 더 이상 내 기록을 볼 수 없고, 공유했던 기록과 사진도 지워져요. 이 휴대폰에 있는 내 기록은 그대로 남아요.',
     label: established ? '연결 해제' : '초대 취소',
     cancelLabel: established ? '연결 유지' : '초대 유지',
     destructive: true,
@@ -364,7 +369,12 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
     {ready && !session?.pendingRevoke && <View style={styles.profiles}>
       <View style={styles.action}>
         <Text style={s.micro}>내 프로필</Text>
-        <Text style={styles.profileName}>{patientName}</Text>
+        <View style={styles.nameRow}>
+          <Text style={[styles.profileName, { flexShrink: 1 }]}>{patientName}</Text>
+          {onEditName && <Pressable accessibilityRole="button" accessibilityLabel="내 이름 변경" onPress={onEditName} hitSlop={8} style={styles.nameEdit}>
+            <Text style={styles.nameEditText}>변경</Text>
+          </Pressable>}
+        </View>
       </View>
       <Icon name="link-outline" size={18} color={connected ? C.green : C.muted} />
       <View style={styles.action}>
@@ -374,17 +384,15 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
       </View>
     </View>}
     {session?.pendingRevoke ? <>
-      <Text style={styles.warning}>이 기기 공유 중지됨 · 서버 연결 해제 대기</Text>
-      <Text style={s.body}>새 기록과 사진의 전송을 중지했어요. 인터넷이 연결되면 기존 보호자의 접근 권한과 서버의 공유 기록을 삭제합니다.</Text>
-      <Button title={busy || stopping ? '연결 해제 중…' : '서버 연결 해제 다시 시도'} secondary disabled={busy || stopping} onPress={() => void retry()} />
+      <Text style={styles.warning}>공유를 멈췄어요 · 연결 해제를 마무리하는 중이에요</Text>
+      <Text style={s.body}>새 기록과 사진은 더 이상 보내지 않아요. 인터넷에 연결되면 보호자의 접근 권한과 공유했던 기록을 지워요.</Text>
+      <Button title={busy || stopping ? '연결 해제 중…' : '연결 해제 다시 시도'} secondary disabled={busy || stopping} onPress={() => void retry()} />
     </> : connected ? <>
       <Text style={s.body}>보호자와 복약 일정, 기록, 약봉투 사진을 공유하고 있어요.</Text>
-      <Text style={s.muted}>마지막 기록 전송: {session.lastSync ? new Date(session.lastSync).toLocaleString('ko-KR') : '전송 대기'}</Text>
-      {photosPending && <Text style={styles.warning}>일부 사진 전송 대기 · 사진은 최대 5MB까지 공유돼요.</Text>}
-      <View style={styles.actions}>
-        <View style={styles.action}><Button title={busy ? '확인 중…' : '지금 동기화'} secondary small disabled={busy} onPress={() => void retry()} /></View>
-        <View style={styles.action}><Button title={stopping ? '해제 중…' : '연결 해제'} secondary small disabled={stopping} onPress={stop} /></View>
-      </View>
+      <Text style={s.muted}>{session.lastSync ? `${relativeTime(session.lastSync, clock)} 보호자에게 전달됐어요` : '보호자에게 전달하는 중이에요'}</Text>
+      {photosPending && <Text style={styles.warning}>사진 일부를 아직 보내지 못했어요. 앱을 열어 두면 다시 보내요.</Text>}
+      {!!error && <Button title={busy ? '다시 보내는 중…' : '다시 시도'} secondary small disabled={busy} onPress={() => void retry()} />}
+      <Button title={stopping ? '해제 중…' : '연결 해제'} secondary small disabled={stopping} onPress={stop} />
     </> : waiting ? <>
       {session.wasConnected ? <Text style={s.body}>보호자 연결 상태를 확인하고 있어요.</Text>
         : session.invite && expiresIn > 0 ? <InviteCodeHandoff key={session.invite.code} invite={session.invite} expiresIn={expiresIn} />
@@ -408,7 +416,7 @@ export function CaregiverLinkCard({ confirm }: { confirm: (dialog: { title: stri
       </View>
       {nextOnly && <Button title={`예정된 진료 최대 ${MAX_SHARED_VISITS}건 공유하기`} small secondary
         disabled={visitControlDisabled} onPress={() => void setVisitSharing(true)} />}
-      {session.visitPreference?.pending && <Text style={s.muted}>{session.visitPreference.enabled ? '공유 설정 전송 대기 중' : '서버 연결 시 보호자 화면에서 일정이 사라져요.'}</Text>}
+      {session.visitPreference?.pending && <Text style={s.muted}>{session.visitPreference.enabled ? '보호자에게 전달하는 중이에요' : '인터넷에 연결되면 보호자 화면에서 일정이 사라져요.'}</Text>}
     </>}
     {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
   </Card>;
@@ -431,6 +439,9 @@ function SharingConsentForm({ ready, busy, invite }: { ready: boolean; busy: boo
 const styles = StyleSheet.create({
   profiles: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 9, backgroundColor: C.bg },
   profileName: { color: C.navy, fontSize: 15, fontWeight: '600', lineHeight: 22 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  nameEdit: { minHeight: 32, justifyContent: 'center' },
+  nameEditText: { color: C.blue, fontSize: 13, fontWeight: '600' },
   code: { color: C.navy, fontSize: 30, fontWeight: '700', letterSpacing: 3, textAlign: 'center', paddingVertical: 12 },
   actions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   action: { flex: 1 },

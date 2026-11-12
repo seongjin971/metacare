@@ -15,7 +15,7 @@ import {
   type NotificationPermissionsStatus,
 } from 'expo-notifications';
 import type { AppState } from './domain';
-import { isPatientReminder, plannedReminders, REMINDER_PREFIX, TEST_REMINDER_ID } from './reminder-plan';
+import { isPatientReminder, plannedReminders, REMINDER_PREFIX } from './reminder-plan';
 
 export type NotificationSyncResult = {
   status: 'ready' | 'denied' | 'unsupported' | 'error' | 'disabled';
@@ -171,28 +171,5 @@ export function syncReminders(state: AppState): Promise<NotificationSyncResult> 
         : '알림 설정이 켜져 있어요. 현재 등록할 미래 일정은 없어요.',
       count: active.size,
     };
-  });
-}
-
-/** Tests local delivery; permission is requested separately by the UI. */
-export function scheduleTestReminder(): Promise<NotificationSyncResult> {
-  return serialized(async () => {
-    await ensureChannel();
-    if (!isAllowed(await getPermissionsAsync())) return deniedResult();
-    await scheduleNotificationAsync({
-      identifier: TEST_REMINDER_ID,
-      content: {
-        title: '메타케어',
-        body: '이 기기로 메타케어 알림을 받을 수 있어요.',
-        sound: 'default',
-        data: { url: '/settings' },
-      },
-      trigger: {
-        type: SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds: 10,
-        channelId: CHANNEL_ID,
-      },
-    });
-    return { status: 'ready', message: '10초 뒤에 울리도록 알림을 설정했어요.', count: 1 };
   });
 }

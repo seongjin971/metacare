@@ -56,7 +56,7 @@ function messageFor(error: unknown, fallback: string): string {
     if (error.status === 400 || error.status === 404 || error.status === 410) return '연결 코드를 다시 확인해 주세요. 만료됐다면 환자 휴대폰에서 새 코드를 만들어 주세요.';
     if (error.status === 409) return '이미 사용된 연결 코드예요. 환자 휴대폰에서 새 코드를 만들어 주세요.';
     if (error.status === 429) return '요청이 많아요. 잠시 후 다시 시도해 주세요.';
-    if (!error.status || error.status >= 500) return '서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.';
+    if (!error.status || error.status >= 500) return '연결하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.';
   }
   return fallback;
 }
@@ -157,7 +157,7 @@ export function CaregiverProvider({ children }: { children: React.ReactNode }) {
       } else {
         setSnapshotView(current => current && { data: medicationCache(current.data), fromCache: true });
         setNetworkError(true);
-        setError('서버에 연결하지 못했어요. 마지막으로 받은 기록을 표시해요.');
+        setError('인터넷에 연결되지 않아 마지막으로 받은 기록을 보여드려요.');
       }
     } finally {
       if (requestRef.current === request) { requestRef.current = null; setSyncing(false); }

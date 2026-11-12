@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Platform, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Modal, Platform, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { Dose, localDateKey, MAX_PATIENT_NAME, recordDose, setMedicationSchedule, setPatientName, setReminderOffsets, startedOn } from './domain';
 import { shiftMonth, startOfMonth } from './calendar';
@@ -8,7 +9,7 @@ import { dosesForHistoryDate, summarizeDosesByDate } from './medication-history'
 import { MedicationHistoryCard } from './medication-history-card';
 import { useCare } from './store';
 import { Button, C, Card, Icon, Page, s } from './ui';
-import { requestReminderPermission, scheduleTestReminder, syncReminders } from './notifications';
+import { requestReminderPermission } from './notifications';
 import { formatReminderOffset, ReminderKind } from './reminder-settings';
 import { ReminderTimePicker } from './reminder-time-picker';
 import { medicationScheduleLabel } from './medication-schedule';
@@ -19,7 +20,7 @@ import { isPhotoAnalyzerAvailable, type VerifiedDoseCapture } from './verify-dos
 import { DosePhotoButton } from './dose-photo-button';
 import { removeDosePhoto, saveDosePhoto } from './dose-photo-storage';
 import { savePhotoRecord } from './save-photo-record';
-import { FadeIn, MotionPressable as Pressable } from './motion';
+import { FadeIn, MotionPressable as Pressable, useReducedMotion } from './motion';
 import { doseTiming, lateText, nextDose } from './dose-timing';
 import { CaregiverLinkCard } from './caregiver-link';
 import { HospitalContactCard } from './hospital-contact-card';
@@ -32,19 +33,6 @@ function TextAction({ label, onPress, accessibilityLabel }: { label: string; onP
     <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label} onPress={onPress} style={styles.textAction}>
       <Text style={styles.actionText}>{label}</Text>
     </Pressable>
-  );
-}
-
-function Disclosure({ title, children }: { title: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <View>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(value => !value)} style={styles.disclosure}>
-        <Text style={styles.itemTitle}>{title}</Text>
-        <Icon name={open ? 'chevron-up' : 'chevron-down'} size={17} color={C.muted} />
-      </Pressable>
-      {open && <FadeIn style={styles.disclosureBody}>{children}</FadeIn>}
-    </View>
   );
 }
 
@@ -254,7 +242,6 @@ export function SettingsScreen() {
   return (
     <Page title="내 관리">
       <View style={styles.stack}>
-        {!sample && <NameCard />}
         <Card>
           <Pressable accessibilityRole="button" accessibilityLabel="복약 설정" onPress={() => setEditingMedication(true)} style={[s.row, { minHeight: 56, gap: 16 }]}>
             <View style={styles.itemContent}>
@@ -282,30 +269,27 @@ export function SettingsScreen() {
   );
 }
 
-function NameCard() {
+/** The name is only shown to the caregiver, so it is edited from the caregiver connection card. */
+function NameEditor({ onClose }: { onClose: () => void }) {
   const { state, update } = useCare();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const name = state.profile?.name ?? '';
-  const save = () => { if (update(current => setPatientName(current, draft), '이름을 저장했어요.')) setEditing(false); };
-  return <Card>
-    <View style={s.row}>
-      <View style={styles.itemContent}>
-        <Text style={s.section}>내 이름</Text>
-        {!editing && <Text style={s.body}>{name}</Text>}
-      </View>
-      {!editing && <TextAction label="변경" accessibilityLabel="이름 변경" onPress={() => { setDraft(name); setEditing(true); }} />}
+  const reducedMotion = useReducedMotion();
+  const inset = useSafeAreaInsets();
+  const [draft, setDraft] = useState(state.profile?.name ?? '');
+  const save = () => { if (update(current => setPatientName(current, draft), '이름을 저장했어요.')) onClose(); };
+  return <Modal visible transparent animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
+    <View style={[styles.backdrop, { paddingTop: Math.max(16, inset.top), paddingBottom: Math.max(16, inset.bottom) }]}>
+      <FadeIn accessibilityViewIsModal accessibilityLabel="이름 변경" style={styles.sheet}>
+        <Text accessibilityRole="header" style={s.section}>이름 변경</Text>
+        <TextInput accessibilityLabel="내 이름" value={draft} onChangeText={setDraft} maxLength={MAX_PATIENT_NAME} autoFocus
+          returnKeyType="done" onSubmitEditing={save} style={s.input} />
+        <Text style={s.micro}>보호자 화면에 이 이름으로 표시돼요.</Text>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flex: 1 }}><Button title="취소" secondary onPress={onClose} /></View>
+          <View style={{ flex: 1 }}><Button title="저장" disabled={!draft.trim()} onPress={save} /></View>
+        </View>
+      </FadeIn>
     </View>
-    {editing && <>
-      <TextInput accessibilityLabel="내 이름" value={draft} onChangeText={setDraft} maxLength={MAX_PATIENT_NAME} autoFocus
-        returnKeyType="done" onSubmitEditing={save} style={s.input} />
-      <Text style={s.micro}>보호자 화면에 이 이름으로 표시돼요.</Text>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}><Button title="취소" secondary small onPress={() => setEditing(false)} /></View>
-        <View style={{ flex: 1 }}><Button title="저장" small disabled={!draft.trim()} onPress={save} /></View>
-      </View>
-    </>}
-  </Card>;
+  </Modal>;
 }
 
 function SharingAndReminderSettings() {
@@ -313,6 +297,7 @@ function SharingAndReminderSettings() {
   const { state, update, notify, notificationStatus, setNotificationStatus, confirm } = useCare();
   const [busy, setBusy] = useState(false);
   const [editingReminder, setEditingReminder] = useState<ReminderKind | null>(null);
+  const [editingName, setEditingName] = useState(false);
   const isWeb = Platform.OS === 'web';
   const remindersOn = state.reminders.appointment || state.reminders.medication;
   const notificationProblem = remindersOn && (notificationStatus.status === 'error' || notificationStatus.status === 'denied');
@@ -330,24 +315,10 @@ function SharingAndReminderSettings() {
     } finally { setBusy(false); }
   };
 
-  const testReminder = async () => {
-    if (busy || isWeb) return;
-    setBusy(true);
-    try {
-      const permission = await requestReminderPermission();
-      if (permission.status !== 'ready') {
-        setNotificationStatus(permission);
-        notify(permission.message);
-        return;
-      }
-      const result = await scheduleTestReminder();
-      notify(result.message);
-    } finally { setBusy(false); }
-  };
-
   return (
     <>
-      <CaregiverLinkCard confirm={confirm} />
+      <CaregiverLinkCard confirm={confirm} onEditName={() => setEditingName(true)} />
+      {editingName && <NameEditor onClose={() => setEditingName(false)} />}
       <Card>
         <Text style={s.section}>알림</Text>
         <View>
@@ -357,18 +328,6 @@ function SharingAndReminderSettings() {
         </View>
         {!isWeb && notificationProblem && <Text accessibilityRole="alert" style={[s.muted, { color: '#a66b1d' }]}>{notificationStatus.message}</Text>}
       </Card>
-      {!isWeb && (
-        <Disclosure title="알림 점검">
-          <Text style={s.muted}>{notificationStatus.message}</Text>
-          <Button title={busy ? '확인 중…' : '10초 뒤 알림 받기'} small secondary disabled={busy} onPress={() => void testReminder()} />
-          <TextAction label="알림 상태 다시 확인" onPress={async () => {
-            const result = await syncReminders(state);
-            setNotificationStatus(result);
-            notify(result.message);
-          }} />
-          <Text style={s.muted}>기기 설정에 따라 알림이 지연될 수 있습니다.</Text>
-        </Disclosure>
-      )}
       {roleActions && <TextAction label="역할 변경" onPress={roleActions.changeRole} />}
       {editingReminder !== null && <ReminderTimePicker
         kind={editingReminder}
@@ -396,6 +355,6 @@ const styles = StyleSheet.create({
   nextStatus: { color: '#495b76', fontSize: 16, fontWeight: '600' },
   settingRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 9 },
   reminderDetails: { minHeight: 52, justifyContent: 'center', paddingVertical: 6 },
-  disclosure: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderColor: C.line },
-  disclosureBody: { paddingVertical: 12, gap: 12 },
+  backdrop: { flex: 1, backgroundColor: '#14213b66', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  sheet: { width: '100%', maxWidth: 440, backgroundColor: C.white, borderRadius: 16, padding: 20, gap: 14 },
 });
